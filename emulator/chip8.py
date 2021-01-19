@@ -41,7 +41,7 @@ class Cpu:
     def __init__(self):
         self.program_counter = uint16_t(0x200)
         self.stack_pointer = uint16_t(0)
-        self.inder_register = uint16_t(0)
+        self.index_register = uint16_t(0)
         self.general_registers = [uint8_t(0)] * 16
 
 
@@ -125,92 +125,92 @@ class Chip8:
         self.cpu.program_counter += 2
 
         ins_type = ins & 0xF000
-        imm24 = ins & 0x0FFF
-        imm16 = ins & 0x00FF
-        imm8 = ins & 0x000F
-        imm_r1 = (ins & 0x0F00) >> 16
-        imm_r2 = (ins & 0x00F0) >> 8
+        imm12 = ins & 0x0FFF
+        imm8 = ins & 0x00FF
+        imm4 = ins & 0x000F
+        imm_r1 = (ins & 0x0F00) >> 8
+        imm_r2 = (ins & 0x00F0) >> 4
         reg1 = self.cpu.general_registers[imm_r1]
         reg2 = self.cpu.general_registers[imm_r2]
 
         skip_next = False
 
         if ins_type == INS_SYSCALL:  # 0x0nnn
-            if imm24 == SYSCALL_CLEAR:  # 0x0E0
+            if imm12 == SYSCALL_CLEAR:  # 0x0E0
                 self.time += 109
                 self.display.clear()
-            elif imm24 == SYSCALL_RETURN:  # 0x0EE
+            elif imm12 == SYSCALL_RETURN:  # 0x0EE
                 self.cpu.program_counter = self.stack_pop()
             else:
                 self.errors += 1
-                print "unknown syscall: ", imm24
+                print "unknown syscall: ", imm12
         elif ins_type == INS_JUMP:  # 0x1nnn
             self.time += 105
-            if imm24 == self.cpu.program_counter - 2:
+            if imm12 == self.cpu.program_counter - 2:
                 self.paused = True  # infinite loop, stop emulation
-            self.cpu.program_counter = imm24
+            self.cpu.program_counter = uint16_t(imm12)
         elif ins_type == INS_CALL:  # 0x2nnn
             self.time += 105
             self.stack_push(self.cpu.program_counter)
-            self.cpu.program_counter = imm24
+            self.cpu.program_counter = uint16_t(imm12)
         elif ins_type == INS_IF_NE:  # 0x3xkk
             self.time += 46
-            skip_next = reg1 == imm16
+            skip_next = reg1 == imm8
         elif ins_type == INS_IF_EQ:  # 0x4xkk
             self.time += 46
-            skip_next = reg1 != imm16
+            skip_next = reg1 != imm8
         elif ins_type == INS_IF_NOT or ins_type == INS_IF:  # 0x5xyn, 0x9xyn
-            if imm8 == IF_EQ:
+            if imm4 == IF_EQ:
                 self.time += 73
                 skip_next = reg1 == reg2
             else:
                 self.errors += 1
-                print "unknown compare: ", imm8
-            if ins_type == INS_IF_NOT:
+                print "unknown compare: ", imm4
+            if ins_type == INS_IF:
                 skip_next = not skip_next
         elif ins_type == INS_LOAD_IMM:  # 0x6xkk
             self.time += 27
-            self.cpu.general_registers[imm_r1] = imm16
+            self.cpu.general_registers[imm_r1] = uint8_t(imm8)
         elif ins_type == INS_ADD_IMM:  # 0x7xkk
             self.time += 45
-            self.cpu.general_registers[imm_r1] += imm16
+            self.cpu.general_registers[imm_r1] += uint8_t(imm8)
         elif ins_type == INS_ARITH:  # 0x8xyn
             self.time += 200
             out = reg1
             carry = -1
-            if imm8 == AR_LD:
+            if imm4 == AR_LD:
                 out = reg2
-            elif imm8 == AR_OR:
+            elif imm4 == AR_OR:
                 out = reg1 | reg2
-            elif imm8 == AR_AND:
+            elif imm4 == AR_AND:
                 out = reg1 & reg2
-            elif imm8 == AR_XOR:
+            elif imm4 == AR_XOR:
                 out = reg1 ^ reg2
-            elif imm8 == AR_ADD:
+            elif imm4 == AR_ADD:
                 out = reg1 + reg2
                 if out < reg1:
                     carry = 1
                 else:
                     carry = 0
-            elif imm8 == AR_SUB:
+            elif imm4 == AR_SUB:
                 out = reg1 - reg2
                 if reg1 > reg2:
                     carry = 1
                 else:
                     carry = 0
-            elif imm8 == AR_SHR:
+            elif imm4 == AR_SHR:
                 out = reg1 >> 1
                 if (reg1 & 1) != 0:
                     carry = 1
                 else:
                     carry = 0
-            elif imm8 == AR_SUBN:
+            elif imm4 == AR_SUBN:
                 out = reg2 - reg1
                 if reg2 > reg1:
                     carry = 1
                 else:
                     carry = 0
-            elif imm8 == AR_SHL:
+            elif imm4 == AR_SHL:
                 out = reg1 << 1
                 if (reg1 & 0x80) != 0:
                     carry = 1
@@ -218,35 +218,35 @@ class Chip8:
                     carry = 0
             else:
                 self.errors += 1
-                print "unknown arithmetic instruction: ", imm8
+                print "unknown arithmetic instruction: ", imm4
             if carry != -1:
-                self.cpu.general_registers[15] = carry
+                self.cpu.general_registers[15] = uint8_t(carry)
             self.cpu.general_registers[imm_r1] = out
         elif ins_type == INS_LOAD_INDEX_IMM:  # 0xAnnn
             self.time += 55
-            self.cpu.inder_register = imm24
+            self.cpu.index_register = imm12
         elif ins_type == INS_JUMP_OFFSET:  # 0xBnnn
             self.time += 105
-            self.cpu.program_counter = self.cpu.general_registers[0] + imm24
+            self.cpu.program_counter = self.cpu.general_registers[0] + uint16_t(imm12)
         elif ins_type == INS_RANDOM:  # 0xCxkk
             self.time += 164
-            self.cpu.general_registers[imm_r1] = self.random.random() & imm16
+            self.cpu.general_registers[imm_r1] = uint8_t(self.random.genrand32() & imm8)
         elif ins_type == INS_DRAW:  # 0xDxyn
             self.time += 22734  # +- 4634...
             collision = False
             x = reg1 & 63  # TODO use display size
             y = reg2 & 31
-            s = self.cpu.inder_register
-            for i in range(imm8):
+            s = self.cpu.index_register
+            for i in range(imm4):
                 if y >= self.display.height:
                     break
                 collision = collision or self.display.draw(x, y, self.ram.read8(s))
                 s += 1
                 y += 1
             if not collision:
-                self.cpu.general_registers[15] = 0
+                self.cpu.general_registers[15] = uint8_t(0)
             else:
-                self.cpu.general_registers[15] = 1
+                self.cpu.general_registers[15] = uint8_t(1)
         # elif ins_type == INS_EXTRA:  # 0xExkk
         #     self.time += 64
         #     xxx

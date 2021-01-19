@@ -58,8 +58,11 @@ class TestAssemble:
         ("JP AAAh", "1AAA"),
         ("CALL 555h", "2555"),
         ("SE V1, 127", "317F"),
+        ("IFNE V1, 127", "317F"),  # alternative spelling
         ("SNE V1, 127", "417F"),
+        ("IFEQ V1, 127", "417F"),  # alternative spelling
         ("SE VA, V5", "5A50"),
+        ("IFNE VA, V5", "5A50"),  # alternative spelling
         ("LD V5, 255", "65FF"),
         ("ADD V6, 255", "76FF"),
         ("LD V5, V6", "8560"),
@@ -75,6 +78,7 @@ class TestAssemble:
         ("SHL V7", "877E"),
         ("SHL V5, V6", "856E"),
         ("SNE V5, V6", "9560"),
+        ("IFEQ V5, V6", "9560"),  # alternative spelling
         ("LD I, BCDh", "ABCD"),
         ("JP V0, CDEh", "BCDE"),
         ("RND V3, ABh", "C3AB"),
@@ -94,3 +98,6 @@ class TestAssemble:
 
     def test_jump_label(self):
         assert assemble(["main:", " ", "JP main"]) == "\x12\x00"
+
+    def test_org(self):
+        assert assemble([".org 0x204", "HLT"]) == "\0\0\0\0\x12\x04"

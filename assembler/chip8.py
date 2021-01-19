@@ -154,8 +154,11 @@ _specification = {
     # 'J addr':               0x1000,  # alternative spelling
     'CALL addr':            0x2000,
     'SE Vx, byte':          0x3000,
+    'IFNE Vx, byte':        0x3000,  # alternative spelling
     'SNE Vx, byte':         0x4000,
+    'IFEQ Vx, byte':        0x4000,  # alternative spelling
     'SE Vx, Vy':            0x5000,
+    'IFNE Vx, Vy':          0x5000,  # alternative spelling
     'LD Vx, byte':          0x6000,
     'ADD Vx, byte':         0x7000,
     'LD Vx, Vy':            0x8000,
@@ -171,6 +174,7 @@ _specification = {
     'SHL Vx, Vy':           0x800E,
     'SHL Vxy':              0x800E,  # alternative, source == dest
     'SNE Vx, Vy':           0x9000,
+    'IFEQ Vx, Vy':          0x9000,  # alternative spelling
     'LD I, addr':           0xA000,
     # 'L I, addr':            0xA000,  # alternative spelling
     'JP V0, addr':          0xB000,
@@ -217,10 +221,17 @@ def assemble(lines, base=0x200):
         else:
             if len(tokens) == 2 and label.accept(tokens[0]) and tokens[1] == ":":
                 labels[tokens[0]] = len(ops) * 2 + base
+            elif len(tokens) == 2 and tokens[0] == ".org" and num3.accept(tokens[1]):
+                org = (num3.parse(tokens[1]) - base) // 2
+                if org < len(ops):
+                    raise ValueError, ".org too small"
+                while len(ops) < org:
+                    ops.append(([], [], 0))
             else:
-                raise ValueError, "unrecognized"
+                raise ValueError, "unrecognized: " + line
     out = ""
     for tokens, spec_tokens, spec_id in ops:
+        assert len(tokens) == len(spec_tokens)
         val = spec_id
         i = 0
         while i < len(tokens):
