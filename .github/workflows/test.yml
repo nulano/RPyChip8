@@ -36,3 +36,5 @@ jobs:
           PYTHONPATH: ./pypy
       - name: Run translation
         run: python pypy/rpython/bin/rpython emulator/chip8.py
+        env:
+          PYTHONPATH: .
