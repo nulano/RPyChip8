@@ -259,6 +259,10 @@ class Chip8:
 
 
 def entrypoint(argv):
+    if len(argv) != 2:
+        print("Usage: %s [script]" % (argv[0], ))
+        return 64
+
     data = open(argv[1], "rb").read()
 
     chip8 = Chip8()
@@ -266,8 +270,23 @@ def entrypoint(argv):
     chip8.run()
 
     print "Finished after: ", chip8.time
-    for x in chip8.display.data:
-        print bin(x)[2:].zfill(64)
+    i = 0
+    while i < chip8.display.height:
+        j = uint64_t(1 << chip8.display.width - 1)
+        line = chip8.display.data[i]
+        while j != 0:
+            if line & j:
+                print 'x',
+            else:
+                print ' ',
+            j >>= 1
+        print
+        i += 1
+    return 0
+
+
+def target(*args):
+    return entrypoint
 
 
 if __name__ == '__main__':

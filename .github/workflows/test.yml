@@ -34,3 +34,5 @@ jobs:
         run: python -m pytest -v -ra --color=yes assembler emulator
         env:
           PYTHONPATH: ./pypy
+      - name: Run translation
+        run: python pypy/rpython/bin/rpython emulator/chip8.py
