@@ -1,7 +1,10 @@
-
 from rpython.rlib import rrandom
 
+from emulator.error import error, errorstream
+from emulator.io.stdio import Stdio
+from emulator.io.command import *
 from emulator.types import *
+from rpython.rlib.rStringIO import RStringIO
 
 
 INS_SYSCALL =           0x0000
@@ -93,13 +96,24 @@ class Display:
         return self.data[y] & m != m
 
 
+class Io:
+    def __init__(self, pipe):
+        self.pipe = pipe
+
+    def command(self):
+        m = self.pipe.ask("?")
+        return unserialize(m)
+
+
 class Chip8:
-    def __init__(self):
+    def __init__(self, pipe):
         self.cpu = Cpu()
         self.ram = Memory()
         self.display = Display()
         self.random = rrandom.Random()
+        self.io = Io(pipe)
         self.time = 0
+        self.watchdog = 2**30
         self.errors = 0
         self.paused = False
 
@@ -111,8 +125,9 @@ class Chip8:
         self.cpu.stack_pointer -= 2
         return self.ram.read16(self.cpu.stack_pointer)
 
-    def run(self):
-        while not self.paused:
+    def run(self, time=2**30):
+        self.watchdog = self.time + time
+        while not self.paused and (self.watchdog - self.time) > 0:
             self.step()
 
     # def _steps(self, count):
@@ -142,8 +157,9 @@ class Chip8:
             elif imm12 == SYSCALL_RETURN:  # 0x0EE
                 self.cpu.program_counter = self.stack_pop()
             else:
+                self.time += 100
                 self.errors += 1
-                print "unknown syscall: ", imm12
+                error('unknown syscall: ', hex(imm12))
         elif ins_type == INS_JUMP:  # 0x1nnn
             self.time += 105
             if imm12 == self.cpu.program_counter - 2:
@@ -165,7 +181,7 @@ class Chip8:
                 skip_next = reg1 == reg2
             else:
                 self.errors += 1
-                print "unknown compare: ", imm4
+                error('unknown compare: ', hex(imm4))
             if ins_type == INS_IF:
                 skip_next = not skip_next
         elif ins_type == INS_LOAD_IMM:  # 0x6xkk
@@ -218,7 +234,7 @@ class Chip8:
                     carry = 0
             else:
                 self.errors += 1
-                print "unknown arithmetic instruction: ", imm4
+                error('unknown arithmetic instruction: ', hex(imm4))
             if carry != -1:
                 self.cpu.general_registers[15] = uint8_t(carry)
             self.cpu.general_registers[imm_r1] = out
@@ -257,39 +273,91 @@ class Chip8:
             self.time += 18
             self.cpu.program_counter += 2
 
+    def loop(self):
+        while True:
+            c = self.io.command()
+            if c is None:
+                pass
+            elif isinstance(c, C_Die):
+                return
+            elif isinstance(c, C_Step):
+                self.step()
+            elif isinstance(c, C_Run):
+                self.run(c.watchdog)
+            elif isinstance(c, C_Load):
+                data = open(c.path, "rb").read()
+                self.ram.load_bin(data)
+            elif isinstance(c, C_Display):
+                out = RStringIO()
+                out.write(hex(self.display.height))
+                i = 0
+                while i < self.display.height:
+                    out.write('\n')
+                    j = uint64_t(1 << self.display.width - 1)
+                    line = self.display.data[i]
+                    while j != 0:
+                        if line & j:
+                            out.write('x')
+                        else:
+                            out.write(' ')
+                        j >>= 1
+                    i += 1
+                self.io.pipe.send(out.getvalue())
+            elif isinstance(c, C_Cpu):
+                out = RStringIO()
+                out.write('PC ')
+                out.write(hex(self.cpu.program_counter))
+                out.write('\nSP ')
+                out.write(hex(self.cpu.stack_pointer))
+                out.write('\nI ')
+                out.write(hex(self.cpu.index_register))
+                for i in xrange(16):
+                    out.write('\nV')
+                    out.write('0123456789ABCDEF'[i])
+                    out.write(' ')
+                    out.write(hex(self.cpu.general_registers[i]))
+                self.io.pipe.send(out.getvalue())
+            else:
+                error('command not implemented: ', c._CODE)
+
+
+class _io:
+    def __init__(self):
+        self.stdin = None
+        self.stdout = None
+        self.stderr = None
+
+
+_io = _io()
+
 
 def entrypoint(argv):
-    if len(argv) != 2:
-        print("Usage: %s [script]" % (argv[0], ))
-        return 64
 
-    data = open(argv[1], "rb").read()
+    # if len(argv) != 2:
+    #     print("Usage: %s [script]" % (argv[0], ))
+    #     return 64
 
-    chip8 = Chip8()
-    chip8.ram.load_bin(data)
-    chip8.run()
+    chip8 = Chip8(Stdio(_io.stdin, _io.stdout))
+    chip8.loop()
+    # chip8.ram.load_bin(data)
+    # chip8.run()
 
-    print "Finished after: ", chip8.time
-    i = 0
-    while i < chip8.display.height:
-        j = uint64_t(1 << chip8.display.width - 1)
-        line = chip8.display.data[i]
-        while j != 0:
-            if line & j:
-                print 'x',
-            else:
-                print ' ',
-            j >>= 1
-        print
-        i += 1
     return 0
-
-
-def target(*args):
-    return entrypoint
 
 
 if __name__ == '__main__':
     import sys
 
+    _io.stdin, _io.stdout, _io.stderr = sys.stdin, sys.stdout, sys.stderr
+    errorstream.stream = _io.stderr
     entrypoint(sys.argv)
+else:
+    from rpython.rlib import rfile
+
+    def target(*args):
+        def wrap(argv):
+            _io.stdin, _io.stdout, _io.stderr = rfile.create_stdio()
+            errorstream.stream = _io.stderr
+            return entrypoint(argv)
+
+        return wrap
