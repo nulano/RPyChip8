@@ -11,25 +11,17 @@ from emulator.types import *
 
 binop_d = {}
 binop_l = []
-
-
 def binop_f(op, a, b):
     return binop_l[op](a, b)
-
-
 def def_binop(op):
     exec "def w(a, b):\n return a %s b" % op
     binop_d[op] = len(binop_l)
     binop_l.append(w)
-
-
 def binop(f, op):
     i = binop_d[op]
     def impl(a, b):
         return f(i, a, b)
     return impl
-
-
 def_binop('+')
 def_binop('-')
 def_binop('*')
@@ -40,6 +32,57 @@ def_binop('>>')
 def_binop('&')
 def_binop('^')
 def_binop('|')
+
+
+cmpop_d = {}
+cmpop_l = []
+def cmpop_f(op, a, b):
+    return cmpop_l[op](a, b)
+def def_cmpop(op):
+    exec """if 1:
+    def w(a, b):
+        if a %s b:
+            return 1
+        else:
+            return 0""" % op
+    cmpop_d[op] = len(cmpop_l)
+    cmpop_l.append(w)
+def cmpop(f, op):
+    i = cmpop_d[op]
+    def impl(a, b):
+        r = f(i, a, b)
+        if r == 1:
+            return True
+        elif r == 0:
+            return False
+        else:
+            assert False, "unexpected return value: " + str(r)
+    return impl
+def_cmpop('<')
+def_cmpop('<=')
+def_cmpop('==')
+def_cmpop('!=')
+def_cmpop('>')
+def_cmpop('>=')
+
+
+unop_d = {}
+unop_l = []
+def unop_f(op, a):
+    return unop_l[op](a)
+def def_unop(op):
+    exec "def w(a):\n return %sa" % op
+    unop_d[op] = len(unop_l)
+    unop_l.append(w)
+def unop(f, op):
+    i = unop_d[op]
+    def impl(a):
+        return f(i, a)
+    return impl
+def_unop('-')
+def_unop('+')
+# def_unop('abs(...)')
+def_unop('~')
 
 
 class TestEmulated:
@@ -131,6 +174,122 @@ class TestEmulated:
                == uint64_t(0x0F0F0F0F0F0F0F0F)
         assert binop(f, '|')(uint64_t(0xA5A5A5A5A5A5A5A5), uint64_t(0xAAAAAAAAAAAAAAAA))\
                == uint64_t(0xAFAFAFAFAFAFAFAF)
+
+    def test_cmpop_uint8_uint8(self):
+        f = self.compile(cmpop_f, [int, uint8_t, uint8_t], int)
+        assert cmpop(f, '<')(uint8_t(254), uint8_t(253)) == False
+        assert cmpop(f, '<')(uint8_t(254), uint8_t(254)) == False
+        assert cmpop(f, '<')(uint8_t(254), uint8_t(255)) == True
+        assert cmpop(f, '<=')(uint8_t(254), uint8_t(253)) == False
+        assert cmpop(f, '<=')(uint8_t(254), uint8_t(254)) == True
+        assert cmpop(f, '<=')(uint8_t(254), uint8_t(255)) == True
+        assert cmpop(f, '==')(uint8_t(254), uint8_t(253)) == False
+        assert cmpop(f, '==')(uint8_t(254), uint8_t(254)) == True
+        assert cmpop(f, '==')(uint8_t(254), uint8_t(255)) == False
+        assert cmpop(f, '!=')(uint8_t(254), uint8_t(253)) == True
+        assert cmpop(f, '!=')(uint8_t(254), uint8_t(254)) == False
+        assert cmpop(f, '!=')(uint8_t(254), uint8_t(255)) == True
+        assert cmpop(f, '>')(uint8_t(254), uint8_t(253)) == True
+        assert cmpop(f, '>')(uint8_t(254), uint8_t(254)) == False
+        assert cmpop(f, '>')(uint8_t(254), uint8_t(255)) == False
+        assert cmpop(f, '>=')(uint8_t(254), uint8_t(253)) == True
+        assert cmpop(f, '>=')(uint8_t(254), uint8_t(254)) == True
+        assert cmpop(f, '>=')(uint8_t(254), uint8_t(255)) == False
+
+    def test_cmpop_uint16_uint16(self):
+        f = self.compile(cmpop_f, [int, uint16_t, uint16_t], int)
+        assert cmpop(f, '<')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == False
+        assert cmpop(f, '<')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == False
+        assert cmpop(f, '<')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == True
+        assert cmpop(f, '<=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == False
+        assert cmpop(f, '<=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == True
+        assert cmpop(f, '<=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == True
+        assert cmpop(f, '==')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == False
+        assert cmpop(f, '==')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == True
+        assert cmpop(f, '==')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == False
+        assert cmpop(f, '!=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == True
+        assert cmpop(f, '!=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == False
+        assert cmpop(f, '!=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == True
+        assert cmpop(f, '>')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == True
+        assert cmpop(f, '>')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == False
+        assert cmpop(f, '>')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == False
+        assert cmpop(f, '>=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 3)) == True
+        assert cmpop(f, '>=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 2)) == True
+        assert cmpop(f, '>=')(uint16_t(2 ** 16 - 2), uint16_t(2 ** 16 - 1)) == False
+
+    def test_cmpop_uint32_uint32(self):
+        f = self.compile(cmpop_f, [int, uint32_t, uint32_t], int)
+        assert cmpop(f, '<')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == False
+        assert cmpop(f, '<')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == False
+        assert cmpop(f, '<')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == True
+        assert cmpop(f, '<=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == False
+        assert cmpop(f, '<=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == True
+        assert cmpop(f, '<=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == True
+        assert cmpop(f, '==')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == False
+        assert cmpop(f, '==')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == True
+        assert cmpop(f, '==')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == False
+        assert cmpop(f, '!=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == True
+        assert cmpop(f, '!=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == False
+        assert cmpop(f, '!=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == True
+        assert cmpop(f, '>')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == True
+        assert cmpop(f, '>')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == False
+        assert cmpop(f, '>')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == False
+        assert cmpop(f, '>=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 3)) == True
+        assert cmpop(f, '>=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 2)) == True
+        assert cmpop(f, '>=')(uint32_t(2 ** 32 - 2), uint32_t(2 ** 32 - 1)) == False
+
+    def test_cmpop_uint64_uint64(self):
+        f = self.compile(cmpop_f, [int, uint64_t, uint64_t], int)
+        assert cmpop(f, '<')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == False
+        assert cmpop(f, '<')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == False
+        assert cmpop(f, '<')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == True
+        assert cmpop(f, '<=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == False
+        assert cmpop(f, '<=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == True
+        assert cmpop(f, '<=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == True
+        assert cmpop(f, '==')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == False
+        assert cmpop(f, '==')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == True
+        assert cmpop(f, '==')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == False
+        assert cmpop(f, '!=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == True
+        assert cmpop(f, '!=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == False
+        assert cmpop(f, '!=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == True
+        assert cmpop(f, '>')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == True
+        assert cmpop(f, '>')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == False
+        assert cmpop(f, '>')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == False
+        assert cmpop(f, '>=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 3)) == True
+        assert cmpop(f, '>=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 2)) == True
+        assert cmpop(f, '>=')(uint64_t(2 ** 64 - 2), uint64_t(2 ** 64 - 1)) == False
+
+    def test_unop_uint8(self):
+        f = self.compile(unop_f, [int, uint8_t], uint8_t)
+        assert unop(f, '+')(uint8_t(255)) == uint8_t(255)
+        assert unop(f, '-')(uint8_t(255)) == uint8_t(1)
+        assert unop(f, '-')(uint8_t(1)) == uint8_t(255)
+        assert unop(f, '~')(uint8_t(0xAA)) == uint8_t(0x55)
+        assert unop(f, '~')(uint8_t(0x55)) == uint8_t(0xAA)
+
+    def test_unop_uint16(self):
+        f = self.compile(unop_f, [int, uint16_t], uint16_t)
+        assert unop(f, '+')(uint16_t(2**16-1)) == uint16_t(2**16-1)
+        assert unop(f, '-')(uint16_t(2**16-1)) == uint16_t(1)
+        assert unop(f, '-')(uint16_t(1)) == uint16_t(2**16-1)
+        assert unop(f, '~')(uint16_t(0xAAAA)) == uint16_t(0x5555)
+        assert unop(f, '~')(uint16_t(0x5555)) == uint16_t(0xAAAA)
+
+    def test_unop_uint32(self):
+        f = self.compile(unop_f, [int, uint32_t], uint32_t)
+        assert unop(f, '+')(uint32_t(2**32-1)) == uint32_t(2**32-1)
+        assert unop(f, '-')(uint32_t(2**32-1)) == uint32_t(1)
+        assert unop(f, '-')(uint32_t(1)) == uint32_t(2**32-1)
+        assert unop(f, '~')(uint32_t(0xAAAAAAAA)) == uint32_t(0x55555555)
+        assert unop(f, '~')(uint32_t(0x55555555)) == uint32_t(0xAAAAAAAA)
+
+    def test_unop_uint64(self):
+        f = self.compile(unop_f, [int, uint64_t], uint64_t)
+        assert unop(f, '+')(uint64_t(2**64-1)) == uint64_t(2**64-1)
+        assert unop(f, '-')(uint64_t(2**64-1)) == uint64_t(1)
+        assert unop(f, '-')(uint64_t(1)) == uint64_t(2**64-1)
+        assert unop(f, '~')(uint64_t(0xAAAAAAAAAAAAAAAA)) == uint64_t(0x5555555555555555)
+        assert unop(f, '~')(uint64_t(0x5555555555555555)) == uint64_t(0xAAAAAAAAAAAAAAAA)
 
 
 class TestTranslated(TestEmulated):
