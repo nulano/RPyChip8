@@ -363,6 +363,10 @@ else:
         def entrypoint_wrap(argv):
             _io.stdin, _io.stdout, _io.stderr = rfile.create_stdio()
             errorstream.stream = _io.stderr
-            return entrypoint(argv)
+            # XXX obscure RPython bug: on linux, rffi.scoped_alloc_buffer
+            #     is annotated with size=const(100) which causes
+            #     late-stage annotation error
+            with rffi.scoped_alloc_buffer(123) as buf:
+                return entrypoint(argv)
 
         return entrypoint_wrap
