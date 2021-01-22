@@ -83,7 +83,19 @@ class TestAssemble:
         ("JP V0, CDEh", "BCDE"),
         ("RND V3, ABh", "C3AB"),
         ("DRW V1, V2, 4", "D124"),
-        # todo 0xE***, 0xF***
+        ("SKP V5", "E59E"),
+        ("IFUP V5", "E59E"),  # alternative spelling
+        ("SKNP V5", "E5A1"),
+        ("IFDN V5", "E5A1"),  # alternative spelling
+        ("LD V3, DT", "F307"),
+        ("LD V3, K", "F30A"),
+        ("LD DT, V4", "F415"),
+        ("LD ST, V4", "F418"),
+        ("ADD I, V5", "F51E"),
+        ("LD F, V6", "F629"),
+        ("LD B, V6", "F633"),
+        ("LD [I], V7", "F755"),
+        ("LD V7, [I]", "F765"),
         # constants
         ("DW FEDCh", "FEDC"),
     ]

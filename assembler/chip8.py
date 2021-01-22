@@ -181,7 +181,19 @@ _specification = {
     # 'J V0, addr':           0xB000,  # alternative spelling
     'RND Vx, byte':         0xC000,
     'DRW Vx, Vy, nib':      0xD000,
-    # todo 0xE..., 0xF...
+    'SKP Vx':               0xE09E,
+    'IFUP Vx':              0xE09E,  # alternative spelling
+    'SKNP Vx':              0xE0A1,
+    'IFDN Vx':              0xE0A1,  # alternative spelling
+    'LD Vx, DT':            0xF007,
+    'LD Vx, K':             0xF00A,
+    'LD DT, Vx':            0xF015,
+    'LD ST, Vx':            0xF018,
+    'ADD I, Vx':            0xF01E,
+    'LD F, Vx':             0xF029,
+    'LD B, Vx':             0xF033,
+    'LD [I], Vx':           0xF055,
+    'LD Vx, [I]':           0xF065,
     # constant must be last
     'DW word':              0,
 }
