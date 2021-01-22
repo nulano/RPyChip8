@@ -289,30 +289,32 @@ class Chip8:
 
     @DISPATCH.handler(C_Display)
     def cmd_display(self, msg):
-        i = 0
-        while i < self.display.height:
-            out = RStringIO()
-            j = uint64_t(1) << (self.display.width - 1)
-            line = self.display.data[i]
-            while j != 0:
-                if line & j:
-                    out.write('x')
-                else:
-                    out.write(' ')
-                j >>= 1
-            i += 1
-            self.io.pipe.tell(M_Display(i, out.getvalue()))
+        self.io.pipe.tell(M_Display(self.display))
+        # i = 0
+        # while i < self.display.height:
+        #     out = RStringIO()
+        #     j = uint64_t(1) << (self.display.width - 1)
+        #     line = self.display.data[i]
+        #     while j != 0:
+        #         if line & j:
+        #             out.write('x')
+        #         else:
+        #             out.write(' ')
+        #         j >>= 1
+        #     i += 1
+        #     self.io.pipe.tell(M_Display(i, out.getvalue()))
 
     @DISPATCH.handler(C_Cpu)
     def cmd_cpu(self, msg):
-        self.io.pipe.tell(M_Cpu('PC', self.cpu.program_counter))
-        self.io.pipe.tell(M_Cpu('SP', self.cpu.stack_pointer))
-        self.io.pipe.tell(M_Cpu('I', self.cpu.index_register))
-        for i in xrange(16):
-            self.io.pipe.tell(M_Cpu('V' + '0123456789ABCDEF'[i],
-                                    self.cpu.general_registers[i]))
-        self.io.pipe.tell(M_Cpu('HLT', int(self.paused)))  # FIXME
-        self.io.pipe.tell(M_Cpu('ERR', self.errors))  # FIXME
+        self.io.pipe.tell(M_Cpu(self))
+        # self.io.pipe.tell(M_Cpu('PC', self.cpu.program_counter))
+        # self.io.pipe.tell(M_Cpu('SP', self.cpu.stack_pointer))
+        # self.io.pipe.tell(M_Cpu('I', self.cpu.index_register))
+        # for i in xrange(16):
+        #     self.io.pipe.tell(M_Cpu('V' + '0123456789ABCDEF'[i],
+        #                             self.cpu.general_registers[i]))
+        # self.io.pipe.tell(M_Cpu('HLT', int(self.paused)))  # FIXME
+        # self.io.pipe.tell(M_Cpu('ERR', self.errors))  # FIXME
 
     @DISPATCH.unhandler
     def unknown_command(self, c):
@@ -320,14 +322,60 @@ class Chip8:
         return False
 
 
-class _io:
+class Chip8_Rpc:
+    def __init__(self, io):
+        self._io = io
+
+        self.cpu = Cpu()
+        self.display = Display()
+        self.errors = 0
+        self.paused = False
+
+    def _cmd(self, cmd):
+        assert isinstance(self._io.get(), Q_NextCommand)
+        self._io.tell(cmd)
+
+    # def _cpu(self, name):
+    #     msg = self._io.get()
+    #     assert isinstance(msg, M_Cpu)
+    #     assert msg.reg_name == name
+    #     return msg.reg_val
+
+    def _sync(self):
+        assert isinstance(self._io.get(), Q_NextCommand)
+        res = self._io.ask(C_Cpu())
+        assert isinstance(res, M_Cpu)
+        res.unpack(self)
+
+        assert isinstance(self._io.get(), Q_NextCommand)
+        res = self._io.ask(C_Display())
+        assert isinstance(res, M_Display)
+        res.unpack(self.display)
+        # self.cpu.program_counter = self._cpu('PC')
+        # self.cpu.stack_pointer = self._cpu('SP')
+        # self.cpu.index_register = self._cpu('I')
+        # for i in xrange(16):
+        #     self.cpu.general_registers[i] = self._cpu('V' + '0123456789ABCDEF'[i])
+        # self.paused = bool(self._cpu('HLT'))
+        # self.errors = self._cpu('ERR')
+
+    def step(self):
+        self._cmd(C_Step())
+        self._sync()
+
+    def run(self, watchdog=2**30):
+        self._cmd(C_Run(watchdog))
+        self._sync()
+
+
+class _stdio:
     def __init__(self):
         self.stdin = None
         self.stdout = None
         self.stderr = None
 
 
-_io = _io()
+_stdio = _stdio()
 
 
 def entrypoint(argv):
@@ -335,7 +383,7 @@ def entrypoint(argv):
     #     print("Usage: %s [script]" % (argv[0], ))
     #     return 64
 
-    pipe = Stdio(_io.stdin, _io.stdout)
+    pipe = Stdio(_stdio.stdin, _stdio.stdout)
     pipe.tell(M_Version(__version__))
 
     chip8 = Chip8(pipe)
@@ -353,16 +401,16 @@ def entrypoint(argv):
 if __name__ == '__main__':
     import sys
 
-    _io.stdin, _io.stdout, _io.stderr = sys.stdin, sys.stdout, sys.stderr
-    errorstream.stream = _io.stderr
+    _stdio.stdin, _stdio.stdout, _stdio.stderr = sys.stdin, sys.stdout, sys.stderr
+    errorstream.stream = _stdio.stderr
     entrypoint(sys.argv)
 else:
     from rpython.rlib import rfile
 
     def target(*args):
         def entrypoint_wrap(argv):
-            _io.stdin, _io.stdout, _io.stderr = rfile.create_stdio()
-            errorstream.stream = _io.stderr
+            _stdio.stdin, _stdio.stdout, _stdio.stderr = rfile.create_stdio()
+            errorstream.stream = _stdio.stderr
             # XXX obscure RPython bug: on linux, rffi.scoped_alloc_buffer
             #     is annotated with size=const(100) which causes
             #     late-stage annotation error

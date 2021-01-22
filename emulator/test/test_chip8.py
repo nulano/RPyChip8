@@ -370,7 +370,7 @@ def _apptest_unique_file(LAST=[0]):
 
 class AppTestChip8(TestChip8):
     def get_chip8(self, code):
-        from emulator.chip8 import Cpu, __version__
+        from emulator.chip8 import Chip8_Rpc, __version__
         from emulator.io import message
         from emulator.io.stdio import StdioTest
 
@@ -385,41 +385,7 @@ class AppTestChip8(TestChip8):
         assert isinstance(vers, message.M_Version)
         assert vers.version == __version__
 
-        class Chip8:
-            def __init__(self):
-                self.cpu = Cpu()
-                self.errors = 0
-                self.paused = False
-
-            def _cmd(self, cmd):
-                assert isinstance(io.get(), message.Q_NextCommand)
-                io.tell(cmd)
-
-            def _cpu(self, name):
-                msg = io.get()
-                assert isinstance(msg, message.M_Cpu)
-                assert msg.reg_name == name
-                return msg.reg_val
-
-            def _sync(self):
-                self._cmd(message.C_Cpu())
-                self.cpu.program_counter = self._cpu('PC')
-                self.cpu.stack_pointer = self._cpu('SP')
-                self.cpu.index_register = self._cpu('I')
-                for i in xrange(16):
-                    self.cpu.general_registers[i] = self._cpu('V' + '0123456789ABCDEF'[i])
-                self.paused = bool(self._cpu('HLT'))
-                self.errors = self._cpu('ERR')
-
-            def step(self):
-                self._cmd(message.C_Step())
-                self._sync()
-
-            def run(self, watchdog=2**30):
-                self._cmd(message.C_Run(watchdog))
-                self._sync()
-
-        chip8 = Chip8()
+        chip8 = Chip8_Rpc(io)
         chip8._cmd(message.C_Load(str(path)))
         yield chip8
         chip8._cmd(message.C_Die())

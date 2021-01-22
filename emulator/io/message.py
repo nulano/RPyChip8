@@ -70,32 +70,45 @@ class M_Version(Message):
         self.version = version
 
 
+@serialized_field_list('data', s_uint64)
+@serialized_field('height', s_uint16)
+@serialized_field('width', s_uint16)
 @_register('_display')
 class M_Display(Message):
-    def __init__(self, line=0, val=''):
-        self.line = line
-        self.val = val
+    def __init__(self, display):
+        self.width = uint16_t(display.width)
+        self.height = uint16_t(display.height)
+        self.data = display.data
 
-    # def serialize(self):
-    #     return self._CODE + ' ' + str(self.line).zfill(2) + ' ' + self.val
+    def unpack(self, display):
+        display.width = int(self.width)
+        display.height = int(self.height)
+        display.data = self.data
 
-    def unserialize(self, m, t):
-        assert False
 
-
+@serialized_field('errors', s_uint32)
+@serialized_field('paused', s_uint8)
+@serialized_field_array('cpu__general_registers', 16, s_uint8)
+@serialized_field('cpu__index_register', s_uint16)
+@serialized_field('cpu__stack_pointer', s_uint16)
+@serialized_field('cpu__program_counter', s_uint16)
 @_register('_cpu')
 class M_Cpu(Message):
-    def __init__(self, reg_name, reg_val):
-        self.reg_name = reg_name
-        self.reg_val = reg_val
-
-    def serialize(self):
-        return self._CODE + ' ' + self.reg_name + ' ' + hex(self.reg_val)
-
-    def unserialize(self, m, t):
-        self.reg_name = t[1]
-        self.reg_val = unsigned(int(t[2], 16))
-        return True
+    def __init__(self, chip8):
+        self.cpu__program_counter = chip8.cpu.program_counter
+        self.cpu__stack_pointer = chip8.cpu.stack_pointer
+        self.cpu__index_register = chip8.cpu.index_register
+        self.cpu__general_registers = chip8.cpu.general_registers
+        self.paused = uint8_t(bool(chip8.paused))
+        self.errors = uint32_t(chip8.errors)
+    
+    def unpack(self, chip8):
+        chip8.cpu.program_counter = self.cpu__program_counter
+        chip8.cpu.stack_pointer = self.cpu__stack_pointer
+        chip8.cpu.index_register = self.cpu__index_register
+        chip8.cpu.general_registers = self.cpu__general_registers
+        chip8.paused = bool(self.paused)
+        chip8.errors = int(self.errors)
 
 
 @_register('?')
