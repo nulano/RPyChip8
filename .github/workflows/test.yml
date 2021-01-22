@@ -38,3 +38,11 @@ jobs:
         run: python pypy/rpython/bin/rpython emulator/chip8.py
         env:
           PYTHONPATH: .
+      - uses: actions/upload-artifact@v2
+        with:
+          name: bin
+          path: chip8-c
+      - name: Run app tests
+        run: python -m pytest -v -ra --color=yes -A ./chip8-c emulator
+        env:
+          PYTHONPATH: ./pypy

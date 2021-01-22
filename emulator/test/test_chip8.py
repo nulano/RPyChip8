@@ -1,15 +1,19 @@
+import subprocess
+
 import pytest
 
 from assembler.chip8 import assemble
-from emulator.chip8 import Chip8
+from emulator.test.conftest import option
+
+pytestmark = pytest.mark.timeout(10)
 
 
 @pytest.yield_fixture(scope="function")
 def chip8(request):
     lines = request.function.__doc__.splitlines()
     code = assemble(lines)
-    chip8 = Chip8()
-    chip8.ram.load_bin(code)
+    ctx = request.instance.get_chip8(code)
+    chip8 = next(ctx)
     if lines[0][:7] == ";steps=":
         for i in range(int(lines[0][7:])):
             chip8.step()
@@ -19,9 +23,22 @@ def chip8(request):
     if lines[0][:7] != ";steps=":
         assert chip8.paused
     assert chip8.errors == 0
+    try:
+        next(ctx)
+    except StopIteration:
+        pass
+    else:
+        assert False
 
 
 class TestChip8:
+    def get_chip8(self, code):
+        from emulator.chip8 import Chip8
+        # TODO use I/O test harness
+        chip8 = Chip8(None)
+        chip8.ram.load_bin(code)
+        yield chip8
+
     def test_halt(self, chip8):
         """;steps=0
             HLT
@@ -341,3 +358,35 @@ class TestChip8:
             HLT
         """
         assert chip8.cpu.general_registers[2] == 0xAA
+
+
+def _apptest_unique_file(LAST=[0]):
+    from rpython.tool.udir import udir
+
+    i = LAST[0]
+    LAST[0] += 1
+    return udir.join('%s_%d.ch8' % (__name__, i))
+
+
+class AppTestChip8(TestChip8):
+    def get_chip8(self, code):
+        from emulator.chip8 import Chip8_Rpc, __version__
+        from emulator.io import message
+        from emulator.io.stdio import StdioTest
+
+        path = _apptest_unique_file()
+        path.write_binary(code)
+
+        proc = subprocess.Popen([option.apptest], executable=option.apptest,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        io = StdioTest(proc.stdout, proc.stdin)
+
+        vers = io.get()
+        assert isinstance(vers, message.M_Version)
+        assert vers.version == __version__
+
+        chip8 = Chip8_Rpc(io)
+        chip8._cmd(message.C_Load(str(path)))
+        yield chip8
+        chip8._cmd(message.C_Die())
+        assert proc.wait() == 0

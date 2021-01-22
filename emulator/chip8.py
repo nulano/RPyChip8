@@ -1,7 +1,13 @@
-
 from rpython.rlib import rrandom
 
+from emulator.error import error, errorstream
+from emulator.io.dispatcher import Dispatcher
+from emulator.io.message import *
+from emulator.io.stdio import Stdio
 from emulator.types import *
+from rpython.rlib.rStringIO import RStringIO
+
+__version__ = '0.1.0'
 
 
 INS_SYSCALL =           0x0000
@@ -93,13 +99,22 @@ class Display:
         return self.data[y] & m != m
 
 
+class Io:
+    def __init__(self, pipe):
+        self.pipe = pipe
+
+
 class Chip8:
-    def __init__(self):
+    DISPATCH = Dispatcher()
+
+    def __init__(self, pipe):
         self.cpu = Cpu()
         self.ram = Memory()
         self.display = Display()
         self.random = rrandom.Random()
+        self.io = Io(pipe)
         self.time = 0
+        self.watchdog = 2**30
         self.errors = 0
         self.paused = False
 
@@ -111,16 +126,22 @@ class Chip8:
         self.cpu.stack_pointer -= 2
         return self.ram.read16(self.cpu.stack_pointer)
 
-    def run(self):
-        while not self.paused:
+    def run(self, time=2**30):
+        self.watchdog = self.time + time
+        while not self.paused and (self.watchdog - self.time) > 0:
             self.step()
+
+    @DISPATCH.handler(C_Run)
+    def cmd_run(self, msg):
+        self.run(msg.watchdog)
 
     # def _steps(self, count):
     #     """NOT_RPYTHON: Used by tests"""
     #     for i in range(count):
     #         self.step()
 
-    def step(self):
+    @DISPATCH.handler(C_Step)
+    def step(self, msg=None):
         ins = self.ram.read16(self.cpu.program_counter)
         self.cpu.program_counter += 2
 
@@ -142,8 +163,9 @@ class Chip8:
             elif imm12 == SYSCALL_RETURN:  # 0x0EE
                 self.cpu.program_counter = self.stack_pop()
             else:
+                self.time += 100
                 self.errors += 1
-                print "unknown syscall: ", imm12
+                error('unknown syscall: ', hex(imm12))
         elif ins_type == INS_JUMP:  # 0x1nnn
             self.time += 105
             if imm12 == self.cpu.program_counter - 2:
@@ -165,7 +187,7 @@ class Chip8:
                 skip_next = reg1 == reg2
             else:
                 self.errors += 1
-                print "unknown compare: ", imm4
+                error('unknown compare: ', hex(imm4))
             if ins_type == INS_IF:
                 skip_next = not skip_next
         elif ins_type == INS_LOAD_IMM:  # 0x6xkk
@@ -218,7 +240,7 @@ class Chip8:
                     carry = 0
             else:
                 self.errors += 1
-                print "unknown arithmetic instruction: ", imm4
+                error('unknown arithmetic instruction: ', hex(imm4))
             if carry != -1:
                 self.cpu.general_registers[15] = uint8_t(carry)
             self.cpu.general_registers[imm_r1] = out
@@ -257,39 +279,142 @@ class Chip8:
             self.time += 18
             self.cpu.program_counter += 2
 
+    @DISPATCH.handler(C_Load)
+    def cmd_load(self, msg):
+        self.load(msg.path)
+
+    def load(self, path):
+        data = open(path, "rb").read()
+        self.ram.load_bin(data)
+
+    @DISPATCH.handler(C_Display)
+    def cmd_display(self, msg):
+        self.io.pipe.tell(M_Display(self.display))
+        # i = 0
+        # while i < self.display.height:
+        #     out = RStringIO()
+        #     j = uint64_t(1) << (self.display.width - 1)
+        #     line = self.display.data[i]
+        #     while j != 0:
+        #         if line & j:
+        #             out.write('x')
+        #         else:
+        #             out.write(' ')
+        #         j >>= 1
+        #     i += 1
+        #     self.io.pipe.tell(M_Display(i, out.getvalue()))
+
+    @DISPATCH.handler(C_Cpu)
+    def cmd_cpu(self, msg):
+        self.io.pipe.tell(M_Cpu(self))
+        # self.io.pipe.tell(M_Cpu('PC', self.cpu.program_counter))
+        # self.io.pipe.tell(M_Cpu('SP', self.cpu.stack_pointer))
+        # self.io.pipe.tell(M_Cpu('I', self.cpu.index_register))
+        # for i in xrange(16):
+        #     self.io.pipe.tell(M_Cpu('V' + '0123456789ABCDEF'[i],
+        #                             self.cpu.general_registers[i]))
+        # self.io.pipe.tell(M_Cpu('HLT', int(self.paused)))  # FIXME
+        # self.io.pipe.tell(M_Cpu('ERR', self.errors))  # FIXME
+
+    @DISPATCH.unhandler
+    def unknown_command(self, c):
+        error('unimplemented command: ', c._CODE)
+        return False
+
+
+class Chip8_Rpc:
+    def __init__(self, io):
+        self._io = io
+
+        self.cpu = Cpu()
+        self.display = Display()
+        self.errors = 0
+        self.paused = False
+
+    def _cmd(self, cmd):
+        assert isinstance(self._io.get(), Q_NextCommand)
+        self._io.tell(cmd)
+
+    # def _cpu(self, name):
+    #     msg = self._io.get()
+    #     assert isinstance(msg, M_Cpu)
+    #     assert msg.reg_name == name
+    #     return msg.reg_val
+
+    def _sync(self):
+        assert isinstance(self._io.get(), Q_NextCommand)
+        res = self._io.ask(C_Cpu())
+        assert isinstance(res, M_Cpu)
+        res.unpack(self)
+
+        assert isinstance(self._io.get(), Q_NextCommand)
+        res = self._io.ask(C_Display())
+        assert isinstance(res, M_Display)
+        res.unpack(self.display)
+        # self.cpu.program_counter = self._cpu('PC')
+        # self.cpu.stack_pointer = self._cpu('SP')
+        # self.cpu.index_register = self._cpu('I')
+        # for i in xrange(16):
+        #     self.cpu.general_registers[i] = self._cpu('V' + '0123456789ABCDEF'[i])
+        # self.paused = bool(self._cpu('HLT'))
+        # self.errors = self._cpu('ERR')
+
+    def step(self):
+        self._cmd(C_Step())
+        self._sync()
+
+    def run(self, watchdog=2**30):
+        self._cmd(C_Run(watchdog))
+        self._sync()
+
+
+class _stdio:
+    def __init__(self):
+        self.stdin = None
+        self.stdout = None
+        self.stderr = None
+
+
+_stdio = _stdio()
+
 
 def entrypoint(argv):
-    if len(argv) != 2:
-        print("Usage: %s [script]" % (argv[0], ))
-        return 64
+    # if len(argv) != 2:
+    #     print("Usage: %s [script]" % (argv[0], ))
+    #     return 64
 
-    data = open(argv[1], "rb").read()
+    pipe = Stdio(_stdio.stdin, _stdio.stdout)
+    pipe.tell(M_Version(__version__))
 
-    chip8 = Chip8()
-    chip8.ram.load_bin(data)
-    chip8.run()
+    chip8 = Chip8(pipe)
 
-    print "Finished after: ", chip8.time
-    i = 0
-    while i < chip8.display.height:
-        j = uint64_t(1 << chip8.display.width - 1)
-        line = chip8.display.data[i]
-        while j != 0:
-            if line & j:
-                print 'x',
-            else:
-                print ' ',
-            j >>= 1
-        print
-        i += 1
-    return 0
-
-
-def target(*args):
-    return entrypoint
+    while True:
+        c = pipe.ask(Q_NextCommand())
+        if c is None:
+            pass
+        elif isinstance(c, C_Die):
+            return 0
+        else:
+            chip8.DISPATCH.dispatch(chip8, c)
 
 
 if __name__ == '__main__':
     import sys
 
+    _stdio.stdin, _stdio.stdout, _stdio.stderr = sys.stdin, sys.stdout, sys.stderr
+    errorstream.stream = _stdio.stderr
     entrypoint(sys.argv)
+else:
+    from rpython.rlib import rfile
+
+    def target(*args):
+        def entrypoint_wrap(argv):
+            _stdio.stdin, _stdio.stdout, _stdio.stderr = rfile.create_stdio()
+            errorstream.stream = _stdio.stderr
+            # XXX obscure RPython bug: on linux, rffi.scoped_alloc_buffer
+            #     is annotated with size=const(100) which causes
+            #     late-stage annotation error
+            with rffi.scoped_alloc_buffer(123) as buf:
+                return entrypoint(argv)
+
+        return entrypoint_wrap

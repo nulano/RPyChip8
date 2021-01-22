@@ -1,4 +1,5 @@
 from rpython.rlib import rarithmetic
+from rpython.rlib.objectmodel import specialize
 from rpython.rtyper import rint
 from rpython.rtyper.error import TyperError
 from rpython.rtyper.lltypesystem import rffi  # sets up predefined types
@@ -22,6 +23,31 @@ uint8_t = make_uint(8)
 uint16_t = make_uint(16)
 uint32_t = make_uint(32)
 uint64_t = make_uint(64)
+
+
+@specialize.arg(0)
+def uint2hex(bits, val):
+    assert val >= 0
+    out = ''
+    i = bits - 4
+    while i >= 0:
+        out += '0123456789ABCDEF'[(val >> i) & 15]
+        i -= 4
+    return out
+
+
+@specialize.arg(0)
+def hex2uint(cls, val):
+    out = cls(0)
+    i = 0
+    while i < len(val):
+        out <<= 4
+        if '0' <= val[i] <= '9':
+            out |= cls(ord(val[i]) - ord('0'))
+        elif 'A' <= val[i] <= 'F':
+            out |= cls(ord(val[i]) - ord('A') + 10)
+        i += 1
+    return out
 
 
 # _wrap_repr = rint.unsignedlonglong_repr
