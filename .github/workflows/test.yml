@@ -39,6 +39,6 @@ jobs:
         env:
           PYTHONPATH: .
       - name: Run app tests
-        run: python -m pytest -v -ra --color=yes -A emulator
+        run: python -m pytest -v -ra --color=yes -A ./chip8-c emulator
         env:
           PYTHONPATH: ./pypy

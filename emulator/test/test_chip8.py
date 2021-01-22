@@ -377,7 +377,7 @@ class AppTestChip8(TestChip8):
         path = _apptest_unique_file()
         path.write_binary(code)
 
-        proc = subprocess.Popen([], executable=option.apptest,
+        proc = subprocess.Popen([option.apptest], executable=option.apptest,
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         io = StdioTest(proc.stdout, proc.stdin)
 
