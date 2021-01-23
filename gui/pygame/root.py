@@ -1,17 +1,19 @@
-import struct
 import subprocess
 
 import pygame
-from PIL import Image, ImageDraw, ImageEnhance
+from PIL import Image, ImageEnhance
 
 from emulator.chip8 import Chip8_Rpc, Io
 from emulator.error import errorstream
 from emulator.io.stdio import Stdio, StdioTest
 from emulator.types import uint64_t, uint8_t
 
-# chip 8 time is in us, pygame time in ms
-speed = 1000
-offset = 0L
+speed_factor = 1
+crt_factor = 0.7
+
+frames_per_s = 60
+cycles_per_ms = 1000 * speed_factor
+cycles_per_frame = 1000 * cycles_per_ms / frames_per_s
 
 
 class Screen:
@@ -22,7 +24,7 @@ class Screen:
         size = display.width, display.height
         if self.im.size != size:
             self.im = Image.new("RGBA", size)
-        self.im = ImageEnhance.Brightness(self.im).enhance(0.6)
+        self.im = ImageEnhance.Brightness(self.im).enhance(crt_factor)
         # This loop is fine on PyPy, avoid CPython if possible
         for y in xrange(display.height):
             x = 0
@@ -39,19 +41,20 @@ class Io_Impl(Io):
         self.delay = uint8_t(0)
         self.sound = uint8_t(0)
         self.last = 0L
+        self.offset = 0L
 
     def sync(self, time):
-        global speed, offset
-        time = long(time) / speed
-        self.last = time
-        ticks = long(pygame.time.get_ticks()) + offset
+        global cycles_per_ms
+        self.last = long(time)
+        time = self.last / cycles_per_ms
+        ticks = long(pygame.time.get_ticks()) + self.offset
         ahead = int(time - ticks)
         if ahead >= 0:
             print "cpu is %d ms ahead" % ahead
             pygame.time.delay(min(ahead, 1000))
         elif ahead <= -10:
             print "cpu is %d ms behind" % (-ahead)
-            offset += ahead
+            self.offset += ahead
 
     def is_key_down(self, key):
         raise NotImplementedError
@@ -60,28 +63,20 @@ class Io_Impl(Io):
         raise NotImplementedError
 
     def set_sound(self, delay):
-        print "set sound", delay
-        self.sound = self.last + long(delay) * (1000 / 60)
+        # print "set sound", delay
+        self.sound = self.last + long(delay) * cycles_per_frame
 
     def set_delay(self, delay):
-        print "set delay", delay
-        self.delay = self.last + long(delay) * (1000 / 60)
+        # print "set delay", delay
+        self.delay = self.last + long(delay) * cycles_per_frame
 
     def get_delay(self):
-        print "get delay"
+        # print "get delay"
         diff = self.delay - self.last
         if diff <= 0:
             return uint8_t(0)
-        diff = diff / (1000 / 60)
+        diff = diff / cycles_per_frame
         return uint8_t(min(diff, 255))
-
-
-def time_dbg(name, last=[0]):
-    now = pygame.time.get_ticks()
-    delta = now - last[0]
-    if name:
-        print "%s took %d ms" % (name, delta)
-    last[0] = now
 
 
 def main(argv):
@@ -95,28 +90,21 @@ def main(argv):
 
     pygame.init()
     window = pygame.display.set_mode((640, 320))
-    # clock = pygame.time.Clock()
 
-    # time_dbg(None)
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 chip8.quit()
-        # time_dbg("event loop")
+                pygame.quit()
+                return 0
 
-        time_dbg(None)
-        chip8.run(1000 * speed / 60)
-        time_dbg("cpu loop")
+        chip8.run(cycles_per_frame)
         screen.update(chip8.display)
-        # time_dbg("screen update")
 
         im = pygame.image.frombuffer(screen.im.tobytes(), screen.im.size, "RGBA")
         pygame.transform.scale(im, window.get_size(), window)
-        # time_dbg("screen draw")
         pygame.display.flip()
-        # time_dbg("screen flip")
-    pygame.quit()
 
 
 if __name__ == '__main__':
