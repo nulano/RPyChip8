@@ -5,42 +5,55 @@ from emulator.io.dispatcher import Dispatcher
 from emulator.io.message import *
 from emulator.io.stdio import Stdio
 from emulator.types import *
-from rpython.rlib.rStringIO import RStringIO
 
 __version__ = '0.1.0'
 
+from rpython.rlib.rarithmetic import intmask
 
-INS_SYSCALL =           0x0000
-INS_JUMP =              0x1000
-INS_CALL =              0x2000
-INS_IF_NE =             0x3000
-INS_IF_EQ =             0x4000
-INS_IF_NOT =            0x5000
-INS_LOAD_IMM =          0x6000
-INS_ADD_IMM =           0x7000
-INS_ARITH =             0x8000
-INS_IF =                0x9000
-INS_LOAD_INDEX_IMM =    0xA000
-INS_JUMP_OFFSET =       0xB000
-INS_RANDOM =            0xC000
-INS_DRAW =              0xD000
-INS_EXTRA =             0xE000
-INS_EXTRA2 =            0xF000
+INS_SYSCALL =               0x0000
+INS_JUMP =                  0x1000
+INS_CALL =                  0x2000
+INS_IF_NE =                 0x3000
+INS_IF_EQ =                 0x4000
+INS_IF_NOT =                0x5000
+INS_LOAD_IMM =              0x6000
+INS_ADD_IMM =               0x7000
+INS_ARITH =                 0x8000
+INS_IF =                    0x9000
+INS_LOAD_INDEX_IMM =        0xA000
+INS_JUMP_OFFSET =           0xB000
+INS_RANDOM =                0xC000
+INS_DRAW =                  0xD000
+INS_IFSYS =                 0xE000
+INS_SYSCALL1 =              0xF000
 
-SYSCALL_CLEAR =          0x0E0
-SYSCALL_RETURN =         0x0EE
+SYSCALL_CLEAR =              0x0E0
+SYSCALL_RETURN =             0x0EE
 
-IF_EQ =                    0x0
+IF_EQ =                        0x0
 
-AR_LD =                    0x0
-AR_OR =                    0x1
-AR_AND =                   0x2
-AR_XOR =                   0x3
-AR_ADD =                   0x4
-AR_SUB =                   0x5
-AR_SHR =                   0x6
-AR_SUBN =                  0x7
-AR_SHL =                   0xE
+AR_LD =                        0x0
+AR_OR =                        0x1
+AR_AND =                       0x2
+AR_XOR =                       0x3
+AR_ADD =                       0x4
+AR_SUB =                       0x5
+AR_SHR =                       0x6
+AR_SUBN =                      0x7
+AR_SHL =                       0xE
+
+IFSYS_KEY_UP =                0x9E
+IFSYS_KEY_DN =                0xA1
+
+SYSCALL1_LOAD_DELAY =         0x07
+SYSCALL1_LOAD_KEY =           0x0A
+SYSCALL1_SET_DELAY =          0x15
+SYSCALL1_SET_SOUND =          0x18
+SYSCALL1_ADD_INDEX =          0x1E
+SYSCALL1_LOAD_INDEX_DIGIT =   0x29
+SYSCALL1_LOAD_BCD =           0x33
+SYSCALL1_REG_SAVE =           0x55
+SYSCALL1_REG_LOAD =           0x65
 
 
 class Cpu:
@@ -78,6 +91,9 @@ class Memory:
         self.contents[addr] = uint8_t((val & 0xFF00) >> 8)
         self.contents[addr + 1] = uint8_t(val & 0xFF)
 
+    def digit(self, d):
+        return uint16_t(0x50 + d)
+
 
 class Display:
     def __init__(self):
@@ -100,19 +116,68 @@ class Display:
 
 
 class Io:
+    def sync(self, time):
+        raise NotImplementedError, 'abstract base class'
+
+    def is_key_down(self, key):
+        raise NotImplementedError, 'abstract base class'
+
+    def next_key(self):
+        raise NotImplementedError, 'abstract base class'
+
+    def set_sound(self, delay):
+        raise NotImplementedError, 'abstract base class'
+
+    def set_delay(self, delay):
+        raise NotImplementedError, 'abstract base class'
+
+    def get_delay(self):
+        raise NotImplementedError, 'abstract base class'
+
+
+class Io_Rpc(Io):
     def __init__(self, pipe):
         self.pipe = pipe
+
+    def sync(self, time):
+        self.pipe.tell(M_Sync(time))
+
+    def is_key_down(self, key):
+        ans = self.pipe.ask(Q_KeyDown(key))
+        assert isinstance(ans, A_KeyDown)
+        return ans.down
+
+    def next_key(self):
+        ans = self.pipe.ask(Q_NextKey())
+        assert isinstance(ans, A_NextKey)
+        return ans.key
+
+    def set_sound(self, delay):
+        self.pipe.tell(M_SetSoundTimer(delay))
+
+    def set_delay(self, delay):
+        self.pipe.tell(M_SetDelayTimer(delay))
+
+    def get_delay(self):
+        ans = self.pipe.ask(Q_DelayTimer())
+        assert isinstance(ans, A_DelayTimer)
+        return ans.delay
 
 
 class Chip8:
     DISPATCH = Dispatcher()
 
-    def __init__(self, pipe):
+    def __init__(self, pipe, io):
+        assert isinstance(io, Io)
+
+        self.pipe = pipe
+        self.random = rrandom.Random()
+
         self.cpu = Cpu()
         self.ram = Memory()
         self.display = Display()
-        self.random = rrandom.Random()
-        self.io = Io(pipe)
+        self.io = io
+
         self.time = 0
         self.watchdog = 2**30
         self.errors = 0
@@ -126,19 +191,15 @@ class Chip8:
         self.cpu.stack_pointer -= 2
         return self.ram.read16(self.cpu.stack_pointer)
 
-    def run(self, time=2**30):
-        self.watchdog = self.time + time
-        while not self.paused and (self.watchdog - self.time) > 0:
-            self.step()
-
     @DISPATCH.handler(C_Run)
     def cmd_run(self, msg):
         self.run(msg.watchdog)
 
-    # def _steps(self, count):
-    #     """NOT_RPYTHON: Used by tests"""
-    #     for i in range(count):
-    #         self.step()
+    def run(self, time=2**30):
+        self.watchdog = self.time + time
+        while not self.paused and (self.watchdog - self.time) > 0:
+            self.step()
+        self.io.sync(self.time)
 
     @DISPATCH.handler(C_Step)
     def step(self, msg=None):
@@ -269,11 +330,68 @@ class Chip8:
                 self.cpu.general_registers[15] = uint8_t(0)
             else:
                 self.cpu.general_registers[15] = uint8_t(1)
-        # elif ins_type == INS_EXTRA:  # 0xExkk
-        #     self.time += 64
-        #     xxx
-        # elif ins_type == INS_EXTRA2:  # 0xFxkk
-        #     xxx
+        elif ins_type == INS_IFSYS:  # 0xExkk
+            if imm8 == IFSYS_KEY_DN:
+                self.io.sync(self.time)
+                skip_next = not self.io.is_key_down(reg1)
+                self.time += 64
+            elif imm8 == IFSYS_KEY_UP:
+                self.io.sync(self.time)
+                skip_next = self.io.is_key_down(reg1)
+                self.time += 64
+            else:
+                self.time += 100
+                self.errors += 1
+                error('unknown syscall: ', hex(imm8))
+        elif ins_type == INS_SYSCALL1:  # 0xFxkk
+            if imm8 == SYSCALL1_LOAD_DELAY:
+                self.io.sync(self.time)
+                self.cpu.general_registers[imm_r1] = self.io.get_delay()
+                self.time += 45
+            elif imm8 == SYSCALL1_LOAD_KEY:
+                self.io.sync(self.time)
+                self.cpu.general_registers[imm_r1] = self.io.next_key()
+                # XXX waited for user input, however long it takes
+                self.time += 100
+            elif imm8 == SYSCALL1_SET_DELAY:
+                self.io.sync(self.time)
+                self.io.set_delay(reg1)
+                self.time += 45
+            elif imm8 == SYSCALL1_SET_SOUND:
+                self.io.sync(self.time)
+                self.io.set_sound(reg1)
+                self.time += 45
+            elif imm8 == SYSCALL1_ADD_INDEX:
+                self.time += 72
+                self.cpu.index_register += reg1
+            elif imm8 == SYSCALL1_LOAD_INDEX_DIGIT:
+                self.time += 91
+                self.cpu.index_register = self.ram.digit(reg1)
+            elif imm8 == SYSCALL1_LOAD_BCD:
+                # TODO this shouldn't need intmask
+                a = uint8_t(intmask(reg1) / 100)
+                b = uint8_t((intmask(reg1) / 10) % 10)
+                c = uint8_t(intmask(reg1) % 10)
+                self.ram.store8(self.cpu.index_register, a)
+                self.ram.store8(self.cpu.index_register + 1, b)
+                self.ram.store8(self.cpu.index_register + 2, c)
+                self.time += 364 + 73 * intmask(a + b + c)
+            elif imm8 == SYSCALL1_REG_SAVE:
+                self.time += 64 * intmask(imm_r1 + 1)
+                j = self.cpu.index_register
+                for i in xrange(imm_r1 + 1):
+                    self.ram.store8(j, self.cpu.general_registers[i])
+                    j += 1
+            elif imm8 == SYSCALL1_REG_LOAD:
+                self.time += 64 * intmask(imm_r1 + 1)
+                j = self.cpu.index_register
+                for i in xrange(imm_r1 + 1):
+                    self.cpu.general_registers[i] = self.ram.read8(j)
+                    j += 1
+            else:
+                self.time += 100
+                self.errors += 1
+                error('unknown syscall: ', hex(imm8))
 
         if skip_next:
             self.time += 18
@@ -289,32 +407,11 @@ class Chip8:
 
     @DISPATCH.handler(C_Display)
     def cmd_display(self, msg):
-        self.io.pipe.tell(M_Display(self.display))
-        # i = 0
-        # while i < self.display.height:
-        #     out = RStringIO()
-        #     j = uint64_t(1) << (self.display.width - 1)
-        #     line = self.display.data[i]
-        #     while j != 0:
-        #         if line & j:
-        #             out.write('x')
-        #         else:
-        #             out.write(' ')
-        #         j >>= 1
-        #     i += 1
-        #     self.io.pipe.tell(M_Display(i, out.getvalue()))
+        self.pipe.tell(M_Display(self.display))
 
     @DISPATCH.handler(C_Cpu)
     def cmd_cpu(self, msg):
-        self.io.pipe.tell(M_Cpu(self))
-        # self.io.pipe.tell(M_Cpu('PC', self.cpu.program_counter))
-        # self.io.pipe.tell(M_Cpu('SP', self.cpu.stack_pointer))
-        # self.io.pipe.tell(M_Cpu('I', self.cpu.index_register))
-        # for i in xrange(16):
-        #     self.io.pipe.tell(M_Cpu('V' + '0123456789ABCDEF'[i],
-        #                             self.cpu.general_registers[i]))
-        # self.io.pipe.tell(M_Cpu('HLT', int(self.paused)))  # FIXME
-        # self.io.pipe.tell(M_Cpu('ERR', self.errors))  # FIXME
+        self.pipe.tell(M_Cpu(self))
 
     @DISPATCH.unhandler
     def unknown_command(self, c):
@@ -323,41 +420,48 @@ class Chip8:
 
 
 class Chip8_Rpc:
-    def __init__(self, io):
-        self._io = io
+    DISPATCH = Dispatcher()
+
+    def __init__(self, pipe, io):
+        assert isinstance(io, Io)
+
+        self.pipe = pipe
+        self.io = io
 
         self.cpu = Cpu()
         self.display = Display()
+
         self.errors = 0
         self.paused = False
 
     def _cmd(self, cmd):
-        assert isinstance(self._io.get(), Q_NextCommand)
-        self._io.tell(cmd)
+        self.pipe.tell(cmd)
+        while True:
+            msg = self.pipe.get()
+            if msg is None:
+                pass
+            elif isinstance(msg, Q_NextCommand):
+                return
+            elif not self.DISPATCH.dispatch(self, msg):
+                error('unhandled message: ', msg.serialize())
 
-    # def _cpu(self, name):
-    #     msg = self._io.get()
-    #     assert isinstance(msg, M_Cpu)
-    #     assert msg.reg_name == name
-    #     return msg.reg_val
+    def initialize(self, path):
+        vers = self.pipe.get()
+        if not isinstance(vers, M_Version):
+            return False
+        if vers.version != __version__:
+            return False
+        if not isinstance(self.pipe.get(), Q_NextCommand):
+            return False
+        self._cmd(C_Load(path))
+        return True
+
+    def quit(self):
+        self.pipe.tell(C_Die())
 
     def _sync(self):
-        assert isinstance(self._io.get(), Q_NextCommand)
-        res = self._io.ask(C_Cpu())
-        assert isinstance(res, M_Cpu)
-        res.unpack(self)
-
-        assert isinstance(self._io.get(), Q_NextCommand)
-        res = self._io.ask(C_Display())
-        assert isinstance(res, M_Display)
-        res.unpack(self.display)
-        # self.cpu.program_counter = self._cpu('PC')
-        # self.cpu.stack_pointer = self._cpu('SP')
-        # self.cpu.index_register = self._cpu('I')
-        # for i in xrange(16):
-        #     self.cpu.general_registers[i] = self._cpu('V' + '0123456789ABCDEF'[i])
-        # self.paused = bool(self._cpu('HLT'))
-        # self.errors = self._cpu('ERR')
+        self._cmd(C_Cpu())
+        self._cmd(C_Display())
 
     def step(self):
         self._cmd(C_Step())
@@ -366,6 +470,38 @@ class Chip8_Rpc:
     def run(self, watchdog=2**30):
         self._cmd(C_Run(watchdog))
         self._sync()
+
+    @DISPATCH.handler(M_Cpu)
+    def msg_cpu(self, msg):
+        msg.unpack(self)
+
+    @DISPATCH.handler(M_Display)
+    def msg_display(self, msg):
+        msg.unpack(self.display)
+
+    @DISPATCH.handler(M_Sync)
+    def msg_sync(self, msg):
+        self.io.sync(msg.time)
+
+    @DISPATCH.handler(Q_KeyDown)
+    def msg_key_down(self, msg):
+        self.pipe.tell(A_KeyDown(self.io.is_key_down(msg.key)))
+
+    @DISPATCH.handler(Q_NextKey)
+    def msg_next_key(self, msg):
+        self.pipe.tell(A_NextKey(self.io.next_key()))
+
+    @DISPATCH.handler(M_SetDelayTimer)
+    def msg_set_delay(self, msg):
+        self.io.set_delay(msg.delay)
+
+    @DISPATCH.handler(M_SetSoundTimer)
+    def msg_set_sound(self, msg):
+        self.io.set_sound(msg.delay)
+
+    @DISPATCH.handler(Q_DelayTimer)
+    def msg_get_delay(self, msg):
+        self.pipe.tell(A_DelayTimer(self.io.get_delay()))
 
 
 class _stdio:
@@ -379,14 +515,10 @@ _stdio = _stdio()
 
 
 def entrypoint(argv):
-    # if len(argv) != 2:
-    #     print("Usage: %s [script]" % (argv[0], ))
-    #     return 64
-
     pipe = Stdio(_stdio.stdin, _stdio.stdout)
     pipe.tell(M_Version(__version__))
 
-    chip8 = Chip8(pipe)
+    chip8 = Chip8(pipe, Io_Rpc(pipe))
 
     while True:
         c = pipe.ask(Q_NextCommand())

@@ -137,3 +137,15 @@ s_uint8 = _s_uint(uint8_t)
 s_uint16 = _s_uint(uint16_t)
 s_uint32 = _s_uint(uint32_t)
 s_uint64 = _s_uint(uint64_t)
+
+
+def s_bool(out, val):
+    if val:
+        out.write('1')
+    else:
+        out.write('0')
+
+
+@_unserialize_impl(s_bool)
+def u_bool(t):
+    return t != '0'

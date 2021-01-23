@@ -73,7 +73,7 @@ class M_Version(Message):
 @serialized_field_list('data', s_uint64)
 @serialized_field('height', s_uint16)
 @serialized_field('width', s_uint16)
-@_register('_display')
+@_register('display')
 class M_Display(Message):
     def __init__(self, display):
         self.width = uint16_t(display.width)
@@ -87,19 +87,19 @@ class M_Display(Message):
 
 
 @serialized_field('errors', s_uint32)
-@serialized_field('paused', s_uint8)
+@serialized_field('paused', s_bool)
 @serialized_field_array('cpu__general_registers', 16, s_uint8)
 @serialized_field('cpu__index_register', s_uint16)
 @serialized_field('cpu__stack_pointer', s_uint16)
 @serialized_field('cpu__program_counter', s_uint16)
-@_register('_cpu')
+@_register('cpu')
 class M_Cpu(Message):
     def __init__(self, chip8):
         self.cpu__program_counter = chip8.cpu.program_counter
         self.cpu__stack_pointer = chip8.cpu.stack_pointer
         self.cpu__index_register = chip8.cpu.index_register
         self.cpu__general_registers = chip8.cpu.general_registers
-        self.paused = uint8_t(bool(chip8.paused))
+        self.paused = chip8.paused
         self.errors = uint32_t(chip8.errors)
     
     def unpack(self, chip8):
@@ -107,8 +107,67 @@ class M_Cpu(Message):
         chip8.cpu.stack_pointer = self.cpu__stack_pointer
         chip8.cpu.index_register = self.cpu__index_register
         chip8.cpu.general_registers = self.cpu__general_registers
-        chip8.paused = bool(self.paused)
+        chip8.paused = self.paused
         chip8.errors = int(self.errors)
+
+
+@serialized_field('time', s_uint32)
+@_register('@')
+class M_Sync(Message):
+    def __init__(self, time):
+        self.time = uint32_t(time)
+
+
+@serialized_field('key', s_uint8)
+@_register('?k')
+class Q_KeyDown(Message):
+    def __init__(self, key):
+        self.key = key
+
+
+@serialized_field('down', s_bool)
+@_register('!k')
+class A_KeyDown(Message):
+    def __init__(self, down):
+        self.down = down
+
+
+@_register('?K')
+class Q_NextKey(Message):
+    pass
+
+
+@serialized_field('key', s_uint8)
+@_register('!K')
+class A_NextKey(Message):
+    def __init__(self, key):
+        self.key = key
+
+
+@serialized_field('delay', s_uint8)
+@_register('td')
+class M_SetDelayTimer(Message):
+    def __init__(self, delay):
+        self.delay = delay
+
+
+@serialized_field('delay', s_uint8)
+@_register('ts')
+class M_SetSoundTimer(Message):
+    def __init__(self, delay):
+        self.delay = delay
+
+
+@_register('?td')
+class Q_DelayTimer(Message):
+    pass
+
+
+@serialized_field('delay', s_uint8)
+@_register('!td')
+class A_DelayTimer(Message):
+    def __init__(self, delay):
+        self.delay = delay
 
 
 @_register('?')
@@ -116,7 +175,7 @@ class Q_NextCommand(Message):
     pass
 
 
-@_register('!', 'die')
+@_register('die')
 class C_Die(Message):
     pass
 
@@ -140,18 +199,18 @@ class C_Run(Message):
 
 
 @serialized_field('path', s_str)
-@_register('l', 'load')
+@_register('!load')
 class C_Load(Message):
     def __init__(self, path=''):
         self.path = path
 
 
-@_register('display')
+@_register('!display')
 class C_Display(Message):
     pass
 
 
-@_register('cpu')
+@_register('!cpu')
 class C_Cpu(Message):
     pass
 

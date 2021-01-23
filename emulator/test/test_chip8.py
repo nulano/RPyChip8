@@ -3,9 +3,41 @@ import subprocess
 import pytest
 
 from assembler.chip8 import assemble
+from emulator.chip8 import Io
 from emulator.test.conftest import option
+from emulator.types import uint8_t
 
 pytestmark = pytest.mark.timeout(10)
+
+
+class IoTest(Io):
+    def __init__(self):
+        self.events = []
+        self.events_expected = [("sync",)]
+        self.val_is_key_down = False
+        self.val_next_key = 0
+        self.val_delay = 0
+
+    def sync(self, time):
+        self.events.append(("sync",))
+
+    def is_key_down(self, key):
+        self.events.append(("is_key_down", key))
+        return self.val_is_key_down
+
+    def next_key(self):
+        self.events.append(("next_key",))
+        return uint8_t(self.val_next_key)
+
+    def set_sound(self, delay):
+        self.events.append(("set_sound", delay))
+
+    def set_delay(self, delay):
+        self.events.append(("set_delay", delay))
+
+    def get_delay(self):
+        self.events.append(("get_delay",))
+        return uint8_t(self.val_delay)
 
 
 @pytest.yield_fixture(scope="function")
@@ -34,10 +66,10 @@ def chip8(request):
 class TestChip8:
     def get_chip8(self, code):
         from emulator.chip8 import Chip8
-        # TODO use I/O test harness
-        chip8 = Chip8(None)
+        chip8 = Chip8(None, IoTest())
         chip8.ram.load_bin(code)
         yield chip8
+        assert chip8.io.events == chip8.io.events_expected
 
     def test_halt(self, chip8):
         """;steps=0
@@ -60,6 +92,7 @@ class TestChip8:
         b:
             JP $
         """
+        chip8.io.events_expected = []
         assert chip8.cpu.program_counter == 0x204
         assert chip8.paused
 
@@ -70,6 +103,7 @@ class TestChip8:
         b:
             HLT
         """
+        chip8.io.events_expected = []
         assert chip8.cpu.program_counter == 0x204
         assert chip8.paused
 
@@ -87,6 +121,7 @@ class TestChip8:
         """;steps=1
             LD VA, FEh
         """
+        chip8.io.events_expected = []
         assert chip8.cpu.general_registers[10] == 0xFE
     
     def test_if_ne(self, chip8):
@@ -336,6 +371,7 @@ class TestChip8:
         """;steps=1
             LD I, ABCh
         """
+        chip8.io.events_expected = []
         assert chip8.cpu.index_register == 0xABC
 
     def test_jump_offset(self, chip8):
@@ -343,6 +379,7 @@ class TestChip8:
             LD V0, 42h
             JP V0, 300h
         """
+        chip8.io.events_expected = []
         assert chip8.cpu.program_counter == 0x342
 
     def test_random(self, chip8):
@@ -359,6 +396,142 @@ class TestChip8:
         """
         assert chip8.cpu.general_registers[2] == 0xAA
 
+    def test_draw(self, chip8):
+        """
+            CALL main
+            HLT
+        main:
+            LD V1, 2
+            LD V2, 4
+            LD VF, 2
+            LD I, img1
+            DRW V1, V2, 3
+            IFNE VF, 0
+            HLT
+            LD I, img2
+            DRW V1, V2, 1
+            IFNE VF, 1
+            HLT
+            RET
+        img1:
+            DW A55Ah
+            DW FFFFh
+        img2:
+            DW 80FFh
+        """
+        assert chip8.cpu.program_counter == 0x202
+        assert chip8.display.data[0] == 0
+        assert chip8.display.data[1] == 0
+        assert chip8.display.data[2] == 0
+        assert chip8.display.data[3] == 0
+        assert chip8.display.data[4] == 0b0000100101000000L << 48
+        assert chip8.display.data[5] == 0b0001011010000000L << 48
+        assert chip8.display.data[6] == 0b0011111111000000L << 48
+        assert chip8.display.data[7] == 0
+        assert chip8.display.data[8] == 0
+        assert chip8.display.data[9] == 0
+    
+    def test_if_key_up1(self, chip8):
+        """;steps=0
+            LD V1, 5
+            IFUP V1
+            HLT
+            HLT
+        """
+        chip8.io.val_is_key_down = False
+        chip8.io.events_expected = [("sync",), ("is_key_down", 5), ("sync",)]
+        chip8.run()
+        assert chip8.cpu.program_counter == 0x204
+    
+    def test_if_key_up2(self, chip8):
+        """;steps=0
+            LD V1, 6
+            IFUP V1
+            HLT
+            HLT
+        """
+        chip8.io.val_is_key_down = True
+        chip8.io.events_expected = [("sync",), ("is_key_down", 6), ("sync",)]
+        chip8.run()
+        assert chip8.cpu.program_counter == 0x206
+    
+    def test_if_key_dn1(self, chip8):
+        """;steps=0
+            LD V1, 5
+            IFDN V1
+            HLT
+            HLT
+        """
+        chip8.io.val_is_key_down = False
+        chip8.io.events_expected = [("sync",), ("is_key_down", 5), ("sync",)]
+        chip8.run()
+        assert chip8.cpu.program_counter == 0x206
+    
+    def test_if_key_dn2(self, chip8):
+        """;steps=0
+            LD V1, 6
+            IFDN V1
+            HLT
+            HLT
+        """
+        chip8.io.val_is_key_down = True
+        chip8.io.events_expected = [("sync",), ("is_key_down", 6), ("sync",)]
+        chip8.run()
+        assert chip8.cpu.program_counter == 0x204
+        
+    def test_get_delay(self, chip8):
+        """;steps=0
+            LD V3, DT
+        """
+        chip8.io.val_delay = 0xFC
+        chip8.io.events_expected = [("sync",), ("get_delay",)]
+        chip8.step()
+        assert chip8.cpu.general_registers[3] == 0xFC
+
+    def test_next_key(self, chip8):
+        """;steps=0
+            LD V7, K
+        """
+        chip8.io.val_next_key = 0xB
+        chip8.io.events_expected = [("sync",), ("next_key",)]
+        chip8.step()
+        assert chip8.cpu.general_registers[7] == 0xB
+
+    def test_set_delay(self, chip8):
+        """;steps=2
+            LD V4, 0xAB
+            LD DT, V4
+        """
+        chip8.io.events_expected = [("sync",), ("set_delay", 0xAB)]
+
+    def test_set_sound(self, chip8):
+        """;steps=2
+            LD V4, 0xBC
+            LD ST, V4
+        """
+        chip8.io.events_expected = [("sync",), ("set_sound", 0xBC)]
+
+    def test_add_index(self, chip8):
+        """
+            LD I, 0x123
+            LD V6, 0x22
+            ADD I, V6
+            HLT
+        """
+        assert chip8.cpu.index_register == 0x145
+
+    def test_load_digit(self, chip8):
+        """
+            LD V4, 0xC
+            LD F, V4
+            HLT
+        """
+        assert chip8.cpu.index_register == 0x5C  # FIXME
+
+    # TODO LD B, Vx
+    # TODO LD [I], Vx
+    # TODO LD Vx, [I]
+
 
 def _apptest_unique_file(LAST=[0]):
     from rpython.tool.udir import udir
@@ -370,8 +543,7 @@ def _apptest_unique_file(LAST=[0]):
 
 class AppTestChip8(TestChip8):
     def get_chip8(self, code):
-        from emulator.chip8 import Chip8_Rpc, __version__
-        from emulator.io import message
+        from emulator.chip8 import Chip8_Rpc, Io
         from emulator.io.stdio import StdioTest
 
         path = _apptest_unique_file()
@@ -379,14 +551,9 @@ class AppTestChip8(TestChip8):
 
         proc = subprocess.Popen([option.apptest], executable=option.apptest,
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        io = StdioTest(proc.stdout, proc.stdin)
-
-        vers = io.get()
-        assert isinstance(vers, message.M_Version)
-        assert vers.version == __version__
-
-        chip8 = Chip8_Rpc(io)
-        chip8._cmd(message.C_Load(str(path)))
+        chip8 = Chip8_Rpc(StdioTest(proc.stdout, proc.stdin), IoTest())
+        assert chip8.initialize(str(path))
         yield chip8
-        chip8._cmd(message.C_Die())
+        assert chip8.io.events == chip8.io.events_expected
+        chip8.quit()
         assert proc.wait() == 0

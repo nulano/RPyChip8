@@ -13,6 +13,7 @@ class Stdio:
         assert msg is not None
         self.o.write(msg.serialize())
         self.o.write('\n')
+        self.o.flush()
 
     def get(self):
         msg = self.i.readline()
@@ -21,7 +22,6 @@ class Stdio:
     def ask(self, question):
         assert question is not None
         self.tell(question)
-        self.o.flush()
         return self.get()
 
 
