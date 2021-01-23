@@ -558,11 +558,54 @@ class TestChip8:
             LD F, V4
             HLT
         """
-        assert chip8.cpu.index_register == 0x5C  # FIXME
+        assert chip8.cpu.index_register == 0x50 + 5 * 0xC
 
-    # TODO LD B, Vx
-    # TODO LD [I], Vx
-    # TODO LD Vx, [I]
+    def test_save_load(self, chip8):
+        """
+            LD V0, F0h
+            LD V1, F1h
+            LD V2, F2h
+            LD V3, F3h
+            LD V4, F4h
+            LD V5, F5h
+            LD V6, F6h
+            LD V7, F7h
+            LD V8, F8h
+
+            LD I, 300h
+            LD [I], V7
+
+            LD V0, A0h
+            LD V1, A1h
+            LD V2, A2h
+            LD V3, A3h
+            LD V4, A4h
+            LD V5, A5h
+            LD V6, A6h
+            LD V7, A7h
+            LD V8, A8h
+
+            LD I, 300h
+            LD V7, [I]
+
+            HLT
+        """
+        for i in xrange(8):
+            assert chip8.cpu.general_registers[i] == 0xF0 + i
+        assert chip8.cpu.general_registers[8] == 0xA8
+
+    def test_bcd(self, chip8):
+        """
+            LD V5, 234
+            LD I, 0x300
+            LD B, V5
+            LD I, 0x300
+            LD V2, [I]
+            HLT
+        """
+        assert chip8.cpu.general_registers[0] == 2
+        assert chip8.cpu.general_registers[1] == 3
+        assert chip8.cpu.general_registers[2] == 4
 
 
 def _apptest_unique_file(LAST=[0]):
