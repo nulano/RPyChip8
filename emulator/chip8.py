@@ -323,7 +323,7 @@ class Chip8:
             for i in range(imm4):
                 if y >= self.display.height:
                     break
-                collision = collision or self.display.draw(x, y, self.ram.read8(s))
+                collision = self.display.draw(x, y, self.ram.read8(s)) or collision
                 s += 1
                 y += 1
             if not collision:

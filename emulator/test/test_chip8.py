@@ -396,7 +396,7 @@ class TestChip8:
         """
         assert chip8.cpu.general_registers[2] == 0xAA
 
-    def test_draw(self, chip8):
+    def test_draw1(self, chip8):
         """
             CALL main
             HLT
@@ -430,6 +430,38 @@ class TestChip8:
         assert chip8.display.data[7] == 0
         assert chip8.display.data[8] == 0
         assert chip8.display.data[9] == 0
+
+    def test_draw2(self, chip8):
+        # make sure clear works
+        """
+            CALL main
+            HLT
+        main:
+            LD V1, 2
+            LD V2, 4
+            LD VF, 2
+            LD I, img1
+            DRW V1, V2, 15
+            IFNE VF, 0
+            HLT
+            DRW V1, V2, 15
+            IFNE VF, 1
+            HLT
+            RET
+        img1:
+            DW A55Ah
+            DW FFFFh
+            DW BCDEh
+            DW A55Ah
+            DW FFFFh
+            DW BCDEh
+            DW A55Ah
+            DW FFFFh
+            DW BCDEh
+        """
+        assert chip8.cpu.program_counter == 0x202
+        for i in xrange(chip8.display.height):
+            assert chip8.display.data[i] == 0
     
     def test_if_key_up1(self, chip8):
         """;steps=0
