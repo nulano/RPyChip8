@@ -10,7 +10,7 @@ from emulator.error import errorstream
 from emulator.io.stdio import Stdio, StdioTest
 from emulator.types import uint64_t, uint8_t
 
-speed_factor = 10
+speed_factor = 1
 crt_factor = 0.7
 sound_fq = 440
 sound_amp = 0.1
@@ -65,9 +65,12 @@ class Io_Impl(Io):
         ticks = long(pygame.time.get_ticks()) + self.offset
         ahead = int(time - ticks)
         if ahead >= 0:
-            print "cpu is %d ms ahead" % ahead
-            pygame.time.delay(min(ahead, 1000))
-        elif ahead <= -10:
+            if ahead >= 5 * ms_per_frame:
+                print "cpu is %d ms ahead" % ahead
+                self.offset += ahead - 5 * ms_per_frame
+                ahead = 5 * ms_per_frame
+            pygame.time.delay(ahead)
+        elif ahead <= -ms_per_frame:
             print "cpu is %d ms behind" % (-ahead)
             self.offset += ahead
 
@@ -127,6 +130,8 @@ def main(argv):
     chip8 = Chip8_Rpc(pipe, Io_Impl())
     chip8.initialize(argv[1])
 
+    # ticks = pygame.time.get_ticks()
+
     running = True
     while running:
         for event in pygame.event.get():
@@ -135,12 +140,15 @@ def main(argv):
                 pygame.quit()
                 return 0
 
-        chip8.run(cycles_per_frame)
-        screen.update(chip8.display)
+        if not chip8.paused:
+            # print "game loop took %d ms" % (pygame.time.get_ticks() - ticks)
+            chip8.run(cycles_per_frame)
+            # ticks = pygame.time.get_ticks()
+            screen.update(chip8.display)
 
-        im = pygame.image.frombuffer(screen.im.tobytes(), screen.im.size, "RGBA")
-        pygame.transform.scale(im, window.get_size(), window)
-        pygame.display.flip()
+            im = pygame.image.frombuffer(screen.im.tobytes(), screen.im.size, "RGBA")
+            pygame.transform.scale(im, window.get_size(), window)
+            pygame.display.flip()
 
 
 if __name__ == '__main__':

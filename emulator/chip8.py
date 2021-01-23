@@ -70,7 +70,102 @@ class Memory:
         self.load_font()
 
     def load_font(self):
-        pass  # FIXME
+        # 0
+        self.contents[0x50] = uint8_t(0b01100000)
+        self.contents[0x51] = uint8_t(0b10010000)
+        self.contents[0x52] = uint8_t(0b10010000)
+        self.contents[0x53] = uint8_t(0b10010000)
+        self.contents[0x54] = uint8_t(0b01100000)
+        # 1
+        self.contents[0x55] = uint8_t(0b00100000)
+        self.contents[0x56] = uint8_t(0b01100000)
+        self.contents[0x57] = uint8_t(0b00100000)
+        self.contents[0x58] = uint8_t(0b00100000)
+        self.contents[0x59] = uint8_t(0b01110000)
+        # 2
+        self.contents[0x5A] = uint8_t(0b11110000)
+        self.contents[0x5B] = uint8_t(0b00010000)
+        self.contents[0x5C] = uint8_t(0b11110000)
+        self.contents[0x5D] = uint8_t(0b10000000)
+        self.contents[0x5E] = uint8_t(0b11110000)
+        # 3
+        self.contents[0x5F] = uint8_t(0b11110000)
+        self.contents[0x60] = uint8_t(0b00010000)
+        self.contents[0x61] = uint8_t(0b11110000)
+        self.contents[0x62] = uint8_t(0b00010000)
+        self.contents[0x63] = uint8_t(0b11110000)
+        # 4
+        self.contents[0x64] = uint8_t(0b10010000)
+        self.contents[0x65] = uint8_t(0b10010000)
+        self.contents[0x66] = uint8_t(0b11110000)
+        self.contents[0x67] = uint8_t(0b00010000)
+        self.contents[0x68] = uint8_t(0b00010000)
+        # 5
+        self.contents[0x69] = uint8_t(0b11110000)
+        self.contents[0x6A] = uint8_t(0b10000000)
+        self.contents[0x6B] = uint8_t(0b11110000)
+        self.contents[0x6C] = uint8_t(0b00010000)
+        self.contents[0x6D] = uint8_t(0b11110000)
+        # 6
+        self.contents[0x6E] = uint8_t(0b11110000)
+        self.contents[0x6F] = uint8_t(0b10000000)
+        self.contents[0x70] = uint8_t(0b11110000)
+        self.contents[0x71] = uint8_t(0b10010000)
+        self.contents[0x72] = uint8_t(0b11110000)
+        # 7
+        self.contents[0x73] = uint8_t(0b11110000)
+        self.contents[0x74] = uint8_t(0b00010000)
+        self.contents[0x75] = uint8_t(0b00100000)
+        self.contents[0x76] = uint8_t(0b01000000)
+        self.contents[0x77] = uint8_t(0b01000000)
+        # 8
+        self.contents[0x78] = uint8_t(0b11110000)
+        self.contents[0x79] = uint8_t(0b10010000)
+        self.contents[0x7A] = uint8_t(0b11110000)
+        self.contents[0x7B] = uint8_t(0b10010000)
+        self.contents[0x7C] = uint8_t(0b11110000)
+        # 9
+        self.contents[0x7D] = uint8_t(0b11110000)
+        self.contents[0x7E] = uint8_t(0b10010000)
+        self.contents[0x7F] = uint8_t(0b11110000)
+        self.contents[0x80] = uint8_t(0b00010000)
+        self.contents[0x81] = uint8_t(0b11110000)
+        # A
+        self.contents[0x82] = uint8_t(0b11110000)
+        self.contents[0x83] = uint8_t(0b10010000)
+        self.contents[0x84] = uint8_t(0b11110000)
+        self.contents[0x85] = uint8_t(0b10010000)
+        self.contents[0x86] = uint8_t(0b10010000)
+        # B
+        self.contents[0x87] = uint8_t(0b11100000)
+        self.contents[0x88] = uint8_t(0b10010000)
+        self.contents[0x89] = uint8_t(0b11100000)
+        self.contents[0x8A] = uint8_t(0b10010000)
+        self.contents[0x8B] = uint8_t(0b11100000)
+        # C
+        self.contents[0x8C] = uint8_t(0b11110000)
+        self.contents[0x8D] = uint8_t(0b10000000)
+        self.contents[0x8E] = uint8_t(0b10000000)
+        self.contents[0x8F] = uint8_t(0b10000000)
+        self.contents[0x90] = uint8_t(0b11110000)
+        # D
+        self.contents[0x91] = uint8_t(0b11100000)
+        self.contents[0x92] = uint8_t(0b10010000)
+        self.contents[0x93] = uint8_t(0b10010000)
+        self.contents[0x94] = uint8_t(0b10010000)
+        self.contents[0x95] = uint8_t(0b11100000)
+        # E
+        self.contents[0x96] = uint8_t(0b11110000)
+        self.contents[0x97] = uint8_t(0b10000000)
+        self.contents[0x98] = uint8_t(0b11110000)
+        self.contents[0x99] = uint8_t(0b10000000)
+        self.contents[0x9A] = uint8_t(0b11110000)
+        # F
+        self.contents[0x9B] = uint8_t(0b11110000)
+        self.contents[0x9C] = uint8_t(0b10000000)
+        self.contents[0x9D] = uint8_t(0b11110000)
+        self.contents[0x9E] = uint8_t(0b10000000)
+        self.contents[0x9F] = uint8_t(0b10000000)
 
     def load_bin(self, data):
         for i, v in enumerate(data):
@@ -92,7 +187,7 @@ class Memory:
         self.contents[addr + 1] = uint8_t(val & 0xFF)
 
     def digit(self, d):
-        return uint16_t(0x50 + d)
+        return uint16_t(0x50 + d * 5)
 
 
 class Display:
@@ -315,7 +410,6 @@ class Chip8:
             self.time += 164
             self.cpu.general_registers[imm_r1] = uint8_t(self.random.genrand32() & imm8)
         elif ins_type == INS_DRAW:  # 0xDxyn
-            self.time += 22734  # +- 4634...
             collision = False
             x = reg1 & 63  # TODO use display size
             y = reg2 & 31
@@ -326,6 +420,7 @@ class Chip8:
                 collision = self.display.draw(x, y, self.ram.read8(s)) or collision
                 s += 1
                 y += 1
+                self.time += 1000  # approximate
             if not collision:
                 self.cpu.general_registers[15] = uint8_t(0)
             else:
