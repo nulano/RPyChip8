@@ -10,7 +10,7 @@ from emulator.error import errorstream
 from emulator.io.stdio import Stdio, StdioTest
 from emulator.types import uint64_t, uint8_t
 
-speed_factor = 1
+speed_factor = 64000
 crt_factor = 0.7
 sound_fq = 440
 sound_amp = 0.1

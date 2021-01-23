@@ -1,4 +1,4 @@
-from rpython.rlib import rrandom
+from rpython.rlib import jit, rarithmetic, rrandom
 
 from emulator.error import error, errorstream
 from emulator.io.dispatcher import Dispatcher
@@ -8,7 +8,6 @@ from emulator.types import *
 
 __version__ = '0.1.0'
 
-from rpython.rlib.rarithmetic import intmask
 
 INS_SYSCALL =               0x0000
 INS_JUMP =                  0x1000
@@ -57,7 +56,11 @@ SYSCALL1_REG_LOAD =           0x65
 
 
 class Cpu:
+    # _virtualizable_ = ["program_counter", "stack_pointer",
+    #                    "index_register", "general_registers[*]"]
+
     def __init__(self):
+        # self = jit.hint(self, access_directly=True, fresh_virtualizable=True)
         self.program_counter = uint16_t(0x200)
         self.stack_pointer = uint16_t(0)
         self.index_register = uint16_t(0)
@@ -65,6 +68,8 @@ class Cpu:
 
 
 class Memory:
+    _immutable_fields_ = ["contents"]
+
     def __init__(self):
         self.contents = [uint8_t(0)] * 0x1000
         self.load_font()
@@ -259,7 +264,13 @@ class Io_Rpc(Io):
         return ans.delay
 
 
+driver = jit.JitDriver(greens=["pc"], reds=["self"], virtualizables=["self"])
+
+
 class Chip8:
+    _immutable_fields_ = ["pipe", "random", "cpu", "ram", "display", "io"]
+    _virtualizable_ = ["time"]
+
     DISPATCH = Dispatcher()
 
     def __init__(self, pipe, io):
@@ -292,14 +303,23 @@ class Chip8:
 
     def run(self, time=2**30):
         self.watchdog = self.time + time
+        pc = self.cpu.program_counter
         while not self.paused and (self.watchdog - self.time) > 0:
-            self.step()
+            driver.can_enter_jit(self=self, pc=pc)
+            driver.jit_merge_point(self=self, pc=pc)
+            pc = self._exec(pc)
+        self.cpu.program_counter = pc
         self.io.sync(self.time)
 
     @DISPATCH.handler(C_Step)
     def step(self, msg=None):
-        ins = self.ram.read16(self.cpu.program_counter)
-        self.cpu.program_counter += 2
+        self.cpu.program_counter = self._exec(self.cpu.program_counter)
+
+    @jit.unroll_safe
+    def _exec(self, pc):
+        ins = self.ram.read16(pc)
+        jit.promote(ins)
+        pc += 2
 
         ins_type = ins & 0xF000
         imm12 = ins & 0x0FFF
@@ -317,20 +337,20 @@ class Chip8:
                 self.time += 109
                 self.display.clear()
             elif imm12 == SYSCALL_RETURN:  # 0x0EE
-                self.cpu.program_counter = self.stack_pop()
+                pc = self.stack_pop()
             else:
                 self.time += 100
                 self.errors += 1
                 error('unknown syscall: ', hex(imm12))
         elif ins_type == INS_JUMP:  # 0x1nnn
             self.time += 105
-            if imm12 == self.cpu.program_counter - 2:
+            if imm12 == pc - 2:
                 self.paused = True  # infinite loop, stop emulation
-            self.cpu.program_counter = uint16_t(imm12)
+            pc = uint16_t(imm12)
         elif ins_type == INS_CALL:  # 0x2nnn
             self.time += 105
-            self.stack_push(self.cpu.program_counter)
-            self.cpu.program_counter = uint16_t(imm12)
+            self.stack_push(pc)
+            pc = uint16_t(imm12)
         elif ins_type == INS_IF_NE:  # 0x3xkk
             self.time += 46
             skip_next = reg1 == imm8
@@ -405,7 +425,7 @@ class Chip8:
             self.cpu.index_register = imm12
         elif ins_type == INS_JUMP_OFFSET:  # 0xBnnn
             self.time += 105
-            self.cpu.program_counter = self.cpu.general_registers[0] + uint16_t(imm12)
+            pc = self.cpu.general_registers[0] + uint16_t(imm12)
         elif ins_type == INS_RANDOM:  # 0xCxkk
             self.time += 164
             self.cpu.general_registers[imm_r1] = uint8_t(self.random.genrand32() & imm8)
@@ -464,21 +484,21 @@ class Chip8:
                 self.cpu.index_register = self.ram.digit(reg1)
             elif imm8 == SYSCALL1_LOAD_BCD:
                 # TODO this shouldn't need intmask
-                a = uint8_t(intmask(reg1) / 100)
-                b = uint8_t((intmask(reg1) / 10) % 10)
-                c = uint8_t(intmask(reg1) % 10)
+                a = uint8_t(rarithmetic.intmask(reg1) / 100)
+                b = uint8_t((rarithmetic.intmask(reg1) / 10) % 10)
+                c = uint8_t(rarithmetic.intmask(reg1) % 10)
                 self.ram.store8(self.cpu.index_register, a)
                 self.ram.store8(self.cpu.index_register + 1, b)
                 self.ram.store8(self.cpu.index_register + 2, c)
-                self.time += 364 + 73 * intmask(a + b + c)
+                self.time += 364 + 73 * rarithmetic.intmask(a + b + c)
             elif imm8 == SYSCALL1_REG_SAVE:
-                self.time += 64 * intmask(imm_r1 + 1)
+                self.time += 64 * rarithmetic.intmask(imm_r1 + 1)
                 j = self.cpu.index_register
                 for i in xrange(imm_r1 + 1):
                     self.ram.store8(j, self.cpu.general_registers[i])
                     j += 1
             elif imm8 == SYSCALL1_REG_LOAD:
-                self.time += 64 * intmask(imm_r1 + 1)
+                self.time += 64 * rarithmetic.intmask(imm_r1 + 1)
                 j = self.cpu.index_register
                 for i in xrange(imm_r1 + 1):
                     self.cpu.general_registers[i] = self.ram.read8(j)
@@ -490,7 +510,9 @@ class Chip8:
 
         if skip_next:
             self.time += 18
-            self.cpu.program_counter += 2
+            pc += 2
+
+        return pc
 
     @DISPATCH.handler(C_Load)
     def cmd_load(self, msg):

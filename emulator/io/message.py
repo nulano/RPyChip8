@@ -106,7 +106,8 @@ class M_Cpu(Message):
         chip8.cpu.program_counter = self.cpu__program_counter
         chip8.cpu.stack_pointer = self.cpu__stack_pointer
         chip8.cpu.index_register = self.cpu__index_register
-        chip8.cpu.general_registers = self.cpu__general_registers
+        for i in xrange(16):
+            chip8.cpu.general_registers[i] = self.cpu__general_registers[i]
         chip8.paused = self.paused
         chip8.errors = int(self.errors)
 
